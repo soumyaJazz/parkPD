@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { colors } from './colors';
 import { radius, screenPadding, spacing } from './spacing';
 import { fontSize, fontWeight, letterSpacing, lineHeight } from './typography';
@@ -43,8 +43,16 @@ export const globalStyles = StyleSheet.create({
     color: colors.text,
     borderBottomWidth: 2,
     borderBottomColor: colors.border,
-    paddingVertical: spacing.sm,
+    // Left flush with the label above it, so the underline reads as one column.
     paddingHorizontal: 0,
+    ...Platform.select({
+      /**
+       * The 8px that suits a touch target looks thin on web, where the field
+       * sits beside a 52px segmented control and a 56px button.
+       */
+      web: { paddingVertical: 15 },
+      default: { paddingVertical: spacing.sm },
+    }),
   },
   inputActive: {
     borderBottomColor: colors.primary,

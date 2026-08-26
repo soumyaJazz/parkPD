@@ -45,6 +45,13 @@ export const styles = StyleSheet.create({
   otpBox: {
     flex: 1,
     textAlign: 'center',
+    /**
+     * On web a flex item defaults to `min-width: auto`, so the underlying
+     * <input> refuses to shrink past its intrinsic width and the four boxes
+     * overflow the row. Yoga already defaults this to 0, so native is
+     * unaffected.
+     */
+    minWidth: 0,
   },
   resendRow: {
     flexDirection: 'row',

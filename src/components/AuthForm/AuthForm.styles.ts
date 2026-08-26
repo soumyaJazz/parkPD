@@ -20,11 +20,9 @@ export const styles = StyleSheet.create({
   },
   segmentActive: {
     backgroundColor: colors.white,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    // Supported natively since RN 0.76 and by react-native-web; the older
+    // shadow*/elevation props are deprecated on web.
+    boxShadow: '0px 1px 4px rgba(0, 0, 0, 0.06)',
   },
   segmentText: {
     fontSize: fontSize.small,
