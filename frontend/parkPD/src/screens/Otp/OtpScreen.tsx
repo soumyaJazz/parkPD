@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { isDeadChallenge, requestOtp, verifyOtp } from '../../api';
 import type { OtpChallenge } from '../../api';
 import { showToast } from '../../components/Toast';
+import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { globalStyles, minInset } from '../../theme';
 import { formatPhoneNumber } from '../../utils/validation';
@@ -44,6 +45,7 @@ function errorMessage(thrown: unknown, fallback: string): string {
 
 function OtpScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { signIn } = useAuth();
   const { flow, method, contact } = route.params;
   const displayContact =
     method === 'phone' ? formatPhoneNumber(contact) : contact;
@@ -155,30 +157,11 @@ function OtpScreen({ navigation, route }: Props) {
       setIsVerified(true);
       showToast(data.isNewUser ? 'Welcome to parkPD' : 'Welcome back', message);
 
-      if (data.isNewUser) {
-        // reset, not navigate: the challenge is spent, so going back to these
-        // boxes could only ever fail. Profile setup is now the top of the stack.
-        navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: 'ProfileSetup',
-              params: {
-                userId: data.user.id,
-                // Only the method actually verified is carried - the profile
-                // screen locks what it's given and asks for the rest.
-                ...(method === 'phone'
-                  ? { phone: contact }
-                  : { email: data.user.email }),
-              },
-            },
-          ],
-        });
-        return;
-      }
-      // TODO(jwt phase): hold the session and replace this stack with the app's
-      // first screen - the server has no token to keep yet, and there is
-      // nowhere past auth to land for a returning user.
+      // Holding the session is the whole navigation. The navigator swaps this
+      // stack out for the app's own the moment a user exists, and reads the
+      // account to decide between profile setup and home - so there is nothing
+      // to reset here, and no way back to a challenge that is already spent.
+      await signIn(data);
     } catch (verifyError) {
       const message = errorMessage(
         verifyError,

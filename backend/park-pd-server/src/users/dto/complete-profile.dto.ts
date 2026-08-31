@@ -3,7 +3,6 @@ import {
   IsIn,
   IsOptional,
   IsString,
-  IsUUID,
   Length,
   Matches,
 } from 'class-validator';
@@ -12,13 +11,11 @@ import type { Gender } from '../users.service';
 /** Kept in step with the client's Gender union and the User row. */
 const GENDERS: Gender[] = ['male', 'female'];
 
+// Which account is being filled in is not in here on purpose: it comes from
+// the token the guard verified. A body field would let any signed-in caller
+// write to someone else's profile by changing one value, and
+// forbidNonWhitelisted now rejects the field outright if an old client sends it.
 export class CompleteProfileDto {
-  // TODO(jwt phase): drop this and read the account off the verified token.
-  // Until then the id is all that identifies the caller, which is why the
-  // service refuses a profile that has already been saved.
-  @IsUUID('4', { message: 'Invalid account' })
-  userId!: string;
-
   @IsString()
   @Length(2, 60, {
     message: 'Full name must be between 2 and 60 characters',

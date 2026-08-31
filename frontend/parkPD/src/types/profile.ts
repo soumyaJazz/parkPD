@@ -10,9 +10,12 @@ export type Gender = 'male' | 'female';
  *
  * `email` and `phone` are absent whenever the account already carries that
  * detail from sign-up - those are shown locked rather than sent back unchanged.
+ *
+ * Which account is being filled in is deliberately not here: the server reads
+ * it off the access token, so it is the one thing about this request the client
+ * cannot choose. Sending it would now be rejected outright.
  */
 export type ProfileSetupRequest = {
-  userId: string;
   fullName: string;
   gender: Gender;
   /** DD/MM/YYYY. */

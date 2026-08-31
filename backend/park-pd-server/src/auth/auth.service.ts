@@ -12,6 +12,8 @@ import { OtpService, OtpPurpose, VerifyResult } from '../otp/otp.service';
 import { MailService } from '../mail/mail.service';
 import { UsersService, User } from '../users/users.service';
 import { ApiPayload } from '../common/api-response';
+import { JwtService } from '@nestjs/jwt';
+import { RefreshTokenService } from './refresh-token.service';
 
 /** Where the user asked for the code to go. */
 export type AuthMethod = 'email' | 'phone';
@@ -31,6 +33,32 @@ export interface OtpChallenge {
   resendAfter: number;
 }
 
+/**
+ * What goes inside the access token. `sub` is the JWT standard claim for "who
+ * this token is about", which every library and debugger expects to read.
+ *
+ * A JWT payload is base64, not encrypted - anyone holding the token can read
+ * every field here. Nothing goes in that we wouldn't be willing to show the
+ * user, and nothing goes in that we aren't willing to re-check server side.
+ */
+export interface JwtPayload {
+  sub: string;
+  email: string;
+}
+
+/** A signed-in session: the account, plus both halves of the credential. */
+export interface AuthSession {
+  user: User;
+  isNewUser: boolean;
+  /** Short-lived, sent on every request. */
+  accessToken: string;
+  /** Epoch ms, so the client can refresh before it lapses rather than after. */
+  accessTokenExpiresAt: number;
+  /** Long-lived, sent only to /auth/refresh and /auth/logout. */
+  refreshToken: string;
+  refreshTokenExpiresAt: number;
+}
+
 /** Names the destination the way the user picked it, for the sent-code copy. */
 const DESTINATION_LABEL: Record<AuthMethod, string> = {
   email: 'email address',
@@ -45,6 +73,8 @@ export class AuthService {
     private otpService: OtpService,
     private mailService: MailService,
     private usersService: UsersService,
+    private jwtService: JwtService,
+    private refreshTokenService: RefreshTokenService,
   ) {}
 
   // login needs an existing account, signup needs the absence of one.
@@ -163,7 +193,7 @@ export class AuthService {
       }
       return {
         message: 'Logged in successfully.',
-        data: { user: existing, isNewUser: false },
+        data: await this.startSession(existing, false),
       };
     }
 
@@ -172,9 +202,85 @@ export class AuthService {
         'An account with this email already exists. Please log in.',
       );
     }
+
+    const user = this.usersService.create(result.email);
     return {
       message: 'Your account has been created successfully.',
-      data: { user: this.usersService.create(result.email), isNewUser: true },
+      data: await this.startSession(user, true),
     };
+  }
+
+  private async signAccessToken(
+    user: User,
+  ): Promise<{ token: string; expiresAt: number }> {
+    const payload: JwtPayload = { sub: user.id, email: user.email };
+    const token = await this.jwtService.signAsync(payload);
+
+    // read the deadline back out of the token rather than recomputing it from
+    // JWT_EXPIRES_IN - the token is the thing that actually expires, so this
+    // can't drift out of step with it when the env var changes
+    const { exp } = this.jwtService.decode<{ exp: number }>(token);
+    return { token, expiresAt: exp * 1000 }; // exp is seconds, JS wants ms
+  }
+
+  /**
+   * The one place a session is minted. Sign-in, sign-up and refresh all come
+   * through here, so the three can't drift apart in what they hand back.
+   */
+  private async startSession(
+    user: User,
+    isNewUser: boolean,
+  ): Promise<AuthSession> {
+    const access = await this.signAccessToken(user);
+    const refresh = this.refreshTokenService.issue(user.id);
+
+    return {
+      user,
+      isNewUser,
+      accessToken: access.token,
+      accessTokenExpiresAt: access.expiresAt,
+      refreshToken: refresh.token,
+      refreshTokenExpiresAt: refresh.expiresAt,
+    };
+  }
+
+  /**
+   * Trades a refresh token for a fresh pair. The old one is spent doing it, so
+   * a token only ever works once.
+   */
+  async refreshSession(refreshToken: string): Promise<ApiPayload<AuthSession>> {
+    const result = this.refreshTokenService.consume(refreshToken);
+
+    if (result.status !== 'ok') {
+      throw new UnauthorizedException({
+        message: 'Your session has ended. Please sign in again.',
+        reason: result.status,
+      });
+    }
+
+    // the row outlived the account it belonged to - possible whenever a user
+    // is deleted, since nothing goes back and sweeps their tokens
+    const user = this.usersService.findById(result.userId);
+    if (!user) {
+      throw new UnauthorizedException({
+        message: 'Your session has ended. Please sign in again.',
+        reason: 'no-account',
+      });
+    }
+
+    return {
+      message: 'Session refreshed.',
+      data: await this.startSession(user, false),
+    };
+  }
+
+  /**
+   * Signing out. Deliberately silent about whether the token was real: the
+   * outcome for the person is the same either way, and saying which would let
+   * anyone test tokens against this endpoint for free.
+   */
+  logout(refreshToken: string): ApiPayload<null> {
+    this.refreshTokenService.revoke(refreshToken);
+    return { message: 'You have been signed out.' };
   }
 }

@@ -7,8 +7,23 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 async function bootstrap() {
   // the most likely way to ship a catastrophic auth hole is forgetting a dev
   // flag - refuse to boot instead
+  // the most likely way to ship a catastrophic auth hole is forgetting a dev
+  // flag - refuse to boot instead
   if (process.env.NODE_ENV === 'production' && process.env.OTP_DEV_CODE) {
     throw new Error('OTP_DEV_CODE must not be set in production');
+  }
+
+  // same class of mistake: a weak or missing secret on either of these means
+  // forgeable tokens. Neither the signer nor the hasher complains about one,
+  // so this is the only place that catches it.
+  for (const name of ['JWT_SECRET', 'REFRESH_HASH_SECRET']) {
+    const value = process.env[name];
+    if (!value || value.length < 32) {
+      throw new Error(
+        `${name} must be set and at least 32 characters. ` +
+          'Generate one with: openssl rand -hex 32',
+      );
+    }
   }
 
   const app = await NestFactory.create(AppModule);

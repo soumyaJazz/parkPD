@@ -74,18 +74,25 @@ export class ProfileService {
    * A contact detail is only accepted for a slot the account doesn't already
    * fill: the one it was verified with is the address a code was actually
    * delivered to, and this is not the endpoint that swaps it.
+   *
+   * `userId` is passed separately from the body because it comes from a
+   * different place: the controller reads it off the verified token, so it is
+   * the one value here the caller cannot choose.
    */
-  completeProfile(dto: CompleteProfileDto): ApiPayload<{ user: User }> {
-    const user = this.usersService.findById(dto.userId);
+  completeProfile(
+    userId: string,
+    dto: CompleteProfileDto,
+  ): ApiPayload<{ user: User }> {
+    const user = this.usersService.findById(userId);
     if (!user) {
+      // the token verified against an account that has since gone
       throw new NotFoundException(
         'We could not find your account. Please sign up again.',
       );
     }
 
-    // TODO(jwt phase): this is what stands in for authentication until the
-    // token does. Setup runs once, so a second save can only be a stale screen
-    // or someone guessing at ids - and either way it must not overwrite a
+    // Setup runs once. A second save can only be a stale screen or a retry
+    // after the first one landed, and either way it must not overwrite a
     // profile that is already there.
     if (user.profileCompletedAt) {
       throw new ConflictException('Your profile has already been set up.');

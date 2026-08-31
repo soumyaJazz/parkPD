@@ -1,5 +1,6 @@
 import type { AuthFlow, AuthMethod } from '../types/auth';
-import { ApiError, post } from './client';
+import type { Gender } from '../types/profile';
+import { ApiError, get, post } from './client';
 import type { ApiResult } from './client';
 
 /**
@@ -48,13 +49,40 @@ export type AuthUser = {
   id: string;
   email: string;
   createdAt: string;
+  // Everything below is filled in by profile setup, which runs once straight
+  // after sign-up - so an account exists without them for the minute in
+  // between, and older rows on the server never had them at all.
+  fullName?: string;
+  phone?: string;
+  gender?: Gender;
+  /** DD/MM/YYYY - the single field the profile form sends. */
+  dob?: string;
+  /**
+   * Set once, when setup is saved. Absent means the form is still owed, which
+   * is what the navigator reads to decide where a signed-in user lands. It
+   * comes from the server rather than being remembered on the device, so a
+   * setup abandoned half way is still owed after a reinstall.
+   */
+  profileCompletedAt?: string;
 };
 
-/** What `POST /auth/verify-otp` hands back once the code checks out. */
+/**
+ * What `POST /auth/verify-otp` hands back once the code checks out.
+ *
+ * Two tokens, two jobs. The access token is short-lived and travels on every
+ * request; the refresh token is long-lived, is spent only to mint a new access
+ * token, and is the half the server can actually revoke.
+ */
 export type VerifiedSession = {
   user: AuthUser;
   /** True when this verification is what created the account. */
   isNewUser: boolean;
+  accessToken: string;
+  /** Epoch milliseconds. */
+  accessTokenExpiresAt: number;
+  refreshToken: string;
+  /** Epoch milliseconds. */
+  refreshTokenExpiresAt: number;
 };
 
 /**
@@ -111,4 +139,28 @@ export function isDeadChallenge(error: unknown): boolean {
     error instanceof ApiError &&
     DEAD_CHALLENGE_REASONS.includes(error.reason as VerifyFailureReason)
   );
+}
+
+/**
+ * The account behind the stored token.
+ *
+ * Called once at launch to find out whether a saved session is still good. The
+ * request goes through the api client, so an access token that lapsed while the
+ * app was closed is refreshed and retried here - reaching a result at all is
+ * the answer, and a throw means the session is gone.
+ */
+export function fetchMe(): Promise<ApiResult<AuthUser>> {
+  return get<AuthUser>('/auth/me');
+}
+
+/**
+ * Ends the session on the server by deleting the refresh token's row, so it can
+ * never be traded for a new access token again.
+ *
+ * The access token it was paired with keeps working until it expires - up to 15
+ * minutes - which is why the app clears its own copy rather than treating this
+ * call as the whole of signing out.
+ */
+export function logout(refreshToken: string): Promise<ApiResult<null>> {
+  return post<null>('/auth/logout', { refreshToken });
 }

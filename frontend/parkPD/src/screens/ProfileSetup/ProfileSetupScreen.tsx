@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { completeProfile } from '../../api';
 import DatePicker from '../../components/DatePicker';
 import { showToast } from '../../components/Toast';
+import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, globalStyles, minInset } from '../../theme';
 import type { Gender, ProfileSetupRequest } from '../../types/profile';
@@ -72,7 +73,8 @@ const NO_ERRORS: FieldErrors = {
  */
 function ProfileSetupScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
-  const { userId, email: verifiedEmail, phone: verifiedPhone } = route.params;
+  const { updateUser } = useAuth();
+  const { email: verifiedEmail, phone: verifiedPhone } = route.params;
 
   // Undefined is what "not verified with this" means, and testing it directly
   // is what lets the locked branches below render the value without a cast.
@@ -141,7 +143,6 @@ function ProfileSetupScreen({ route }: Props) {
 
     // The form's two age inputs collapse to one field here: only `dob` travels.
     const payload: ProfileSetupRequest = {
-      userId,
       fullName: normalizeFullName(fullName),
       gender,
       dob,
@@ -157,10 +158,13 @@ function ProfileSetupScreen({ route }: Props) {
 
     setIsSubmitting(true);
     try {
-      const { message } = await completeProfile(payload);
+      const { data, message } = await completeProfile(payload);
       showToast('Profile saved', message);
-      // TODO(jwt phase): replace this stack with the app's first screen - there
-      // is no session to hold yet, and nowhere past setup to land.
+      // The saved account comes back carrying profileCompletedAt, and that is
+      // what the navigator reads - handing it to the context is what moves the
+      // app past setup. No navigation call: this screen unmounts with the
+      // branch that mounted it.
+      updateUser(data.user);
     } catch (submitError) {
       const message =
         submitError instanceof Error
