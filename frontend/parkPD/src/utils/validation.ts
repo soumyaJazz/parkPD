@@ -61,3 +61,34 @@ export function validatePhoneNumber(input: string): string | null {
   }
   return null;
 }
+
+/** Long enough for a mononym, short enough to catch a pasted paragraph. */
+const MIN_NAME_LENGTH = 2;
+const MAX_NAME_LENGTH = 60;
+
+/** Collapses runs of whitespace, so "Ada   Lovelace" is stored as one space. */
+export function normalizeFullName(input: string): string {
+  return input.trim().replace(/\s+/g, ' ');
+}
+
+/** Returns an error message, or null when the name is usable. */
+export function validateFullName(input: string): string | null {
+  const name = normalizeFullName(input);
+
+  if (!name) {
+    return 'Full name is required';
+  }
+  if (name.length < MIN_NAME_LENGTH) {
+    return 'Enter your full name';
+  }
+  if (name.length > MAX_NAME_LENGTH) {
+    return `Full name cannot be longer than ${MAX_NAME_LENGTH} characters`;
+  }
+  // Deliberately the only character rule: names carry apostrophes, hyphens and
+  // scripts we shouldn't be second-guessing, but a digit is a typo or a value
+  // pasted in from another field.
+  if (/\d/.test(name)) {
+    return 'Full name cannot contain numbers';
+  }
+  return null;
+}
