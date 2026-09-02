@@ -11,13 +11,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { completeProfile } from '../../api';
 import DatePicker from '../../components/DatePicker';
-import { showToast } from '../../components/Toast';
-import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, globalStyles, minInset } from '../../theme';
-import type { Gender, ProfileSetupRequest } from '../../types/profile';
+import type { Gender, ProfileDetails } from '../../types/profile';
 import {
   ageFromDate,
   ageToDob,
@@ -71,9 +68,8 @@ const NO_ERRORS: FieldErrors = {
  * be edited here would silently detach the account from what was verified. The
  * other one is offered as an optional field.
  */
-function ProfileSetupScreen({ route }: Props) {
+function ProfileSetupScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { updateUser } = useAuth();
   const { email: verifiedEmail, phone: verifiedPhone } = route.params;
 
   // Undefined is what "not verified with this" means, and testing it directly
@@ -94,7 +90,6 @@ function ProfileSetupScreen({ route }: Props) {
 
   const [isPickerOpen, setPickerOpen] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>(NO_ERRORS);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedDate = parseDob(dob);
   const isReady = fullName.trim() !== '' && gender !== null && dob !== '';
@@ -128,11 +123,7 @@ function ProfileSetupScreen({ route }: Props) {
     dob: validateDob(dob),
   });
 
-  const handleSubmit = async () => {
-    if (isSubmitting) {
-      return;
-    }
-
+  const handleNext = () => {
     const nextErrors = validateAll();
     setErrors(nextErrors);
     // The gender check is already one of the errors above; repeating it is what
@@ -142,38 +133,24 @@ function ProfileSetupScreen({ route }: Props) {
     }
 
     // The form's two age inputs collapse to one field here: only `dob` travels.
-    const payload: ProfileSetupRequest = {
-      fullName: normalizeFullName(fullName),
+    const details: ProfileDetails = {
+      full_name: normalizeFullName(fullName),
       gender,
       dob,
     };
     // Left out entirely when locked or blank, so the server can tell "not
     // given" from "cleared" and never has to diff against what it already has.
     if (!emailLocked && email.trim()) {
-      payload.email = email.trim().toLowerCase();
+      details.email = email.trim().toLowerCase();
     }
     if (!phoneLocked && phone.trim()) {
-      payload.phone = phone.trim();
+      details.phone = phone.trim();
     }
 
-    setIsSubmitting(true);
-    try {
-      const { data, message } = await completeProfile(payload);
-      showToast('Profile saved', message);
-      // The saved account comes back carrying profileCompletedAt, and that is
-      // what the navigator reads - handing it to the context is what moves the
-      // app past setup. No navigation call: this screen unmounts with the
-      // branch that mounted it.
-      updateUser(data.user);
-    } catch (submitError) {
-      const message =
-        submitError instanceof Error
-          ? submitError.message
-          : 'Could not save your profile. Please try again.';
-      showToast(message, undefined, 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+    // Nothing is saved yet. The questionnaire that follows sends both halves
+    // in one request, so a run abandoned there leaves no half-filled account
+    // behind - and the navigator still owes this screen on the next launch.
+    navigation.navigate('ProfileQuestions', { details });
   };
 
   const renderLocked = (value: string) => (
@@ -193,15 +170,12 @@ function ProfileSetupScreen({ route }: Props) {
       <View
         style={[
           globalStyles.screen,
-          {
-            paddingTop: Math.max(minInset.top, insets.top),
-            paddingBottom: Math.max(minInset.bottom, insets.bottom),
-          },
+          { paddingTop: Math.max(minInset.top, insets.top) },
         ]}
       >
         {/* The indicator is deliberately left on: this form is taller than the
             screen on every phone, and it is the only cue that there is more
-            below the fold. */}
+            below the fold. The button is no longer down there with it. */}
         <ScrollView
           style={globalStyles.flex}
           contentContainerStyle={styles.content}
@@ -238,7 +212,6 @@ function ProfileSetupScreen({ route }: Props) {
                 fullName: validateFullName(fullName),
               }))
             }
-            editable={!isSubmitting}
             returnKeyType="next"
           />
           <Text style={globalStyles.errorText}>{errors.fullName ?? ''}</Text>
@@ -274,7 +247,6 @@ function ProfileSetupScreen({ route }: Props) {
                     phone: phone.trim() ? validatePhoneNumber(phone) : null,
                   }))
                 }
-                editable={!isSubmitting}
               />
               <Text style={globalStyles.errorText}>{errors.phone ?? ''}</Text>
             </>
@@ -312,7 +284,6 @@ function ProfileSetupScreen({ route }: Props) {
                     email: email.trim() ? validateEmail(email) : null,
                   }))
                 }
-                editable={!isSubmitting}
               />
               <Text style={globalStyles.errorText}>{errors.email ?? ''}</Text>
             </>
@@ -330,7 +301,6 @@ function ProfileSetupScreen({ route }: Props) {
                     setGender(option.key);
                     clearError('gender');
                   }}
-                  disabled={isSubmitting}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                 >
@@ -368,7 +338,6 @@ function ProfileSetupScreen({ route }: Props) {
                 dob: age === '' ? null : validateDob(dob),
               }))
             }
-            editable={!isSubmitting}
           />
           {/* The one message the pair can produce: only the age field can reach
               an out-of-range date, since the picker won't offer one. */}
@@ -384,7 +353,6 @@ function ProfileSetupScreen({ route }: Props) {
           <Pressable
             style={[styles.dateField, dob !== '' && styles.dateFieldFilled]}
             onPress={() => setPickerOpen(true)}
-            disabled={isSubmitting}
             accessibilityRole="button"
             accessibilityLabel={
               dob === '' ? 'Pick your date of birth' : `Date of birth ${dob}`
@@ -407,25 +375,32 @@ function ProfileSetupScreen({ route }: Props) {
               finished while a required field was still hidden underneath. Here
               the button is the end of the content, and reaching it means having
               scrolled past every field. */}
-          <View style={globalStyles.spacer} />
+        </ScrollView>
 
+        {/* Pinned, not the last thing in the scroll. Measured on an iPhone 17
+            Pro, this form is 887pt of content in a 778pt window - so the one
+            control that finishes the screen sat 109 points below the fold,
+            with the scroll indicator as its only advertisement. Behind the
+            keyboard it was further still. */}
+        <View
+          style={[
+            styles.footer,
+            { paddingBottom: Math.max(minInset.bottom, insets.bottom) },
+          ]}
+        >
           <TouchableOpacity
             style={[
               globalStyles.button,
-              styles.submit,
               isReady && globalStyles.buttonReady,
             ]}
             onPress={() => {
-              handleSubmit();
+              handleNext();
             }}
-            disabled={isSubmitting}
             activeOpacity={0.9}
           >
-            <Text style={globalStyles.buttonText}>
-              {isSubmitting ? 'Saving...' : 'Save and continue'}
-            </Text>
+            <Text style={globalStyles.buttonText}>Next</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </View>
 
       <DatePicker

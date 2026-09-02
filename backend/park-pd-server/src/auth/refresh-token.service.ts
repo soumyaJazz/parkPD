@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as crypto from 'crypto';
+import { dataFile } from '../common/data-store';
 
 interface RefreshTokenRecord {
   /** HMAC of the token. The token itself is never written to disk. */
@@ -24,7 +24,7 @@ const MAX_PER_USER = 10;
 export class RefreshTokenService {
   private readonly logger = new Logger(RefreshTokenService.name);
 
-  private readonly filePath = path.join(process.cwd(), 'refresh-tokens.json');
+  private readonly filePath = dataFile('refresh-tokens.json');
 
   constructor(private configService: ConfigService) {
     if (!fs.existsSync(this.filePath)) {

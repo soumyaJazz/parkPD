@@ -149,13 +149,14 @@ function OtpScreen({ navigation, route }: Props) {
     try {
       // challenge.challengeId, not the route param - a resend replaced it, and
       // the typed code belongs to whichever challenge was issued last.
-      const { data, message } = await verifyOtp(
+      const { data } = await verifyOtp(
         challenge.challengeId,
         digits.join(''),
         flow,
       );
+      // No toast on the way in: the screen it lands on is the confirmation,
+      // and a greeting arriving over it says nothing the user didn't just do.
       setIsVerified(true);
-      showToast(data.isNewUser ? 'Welcome to parkPD' : 'Welcome back', message);
 
       // Holding the session is the whole navigation. The navigator swaps this
       // stack out for the app's own the moment a user exists, and reads the

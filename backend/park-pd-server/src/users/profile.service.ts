@@ -12,6 +12,8 @@ import { User, UsersService } from './users.service';
 const MIN_AGE = 13;
 const MAX_AGE = 120;
 
+const MONTHS_PER_YEAR = 12;
+
 /** E.164 allows at most 15 digits; 10 is the shortest number we accept. */
 const MIN_PHONE_DIGITS = 10;
 const MAX_PHONE_DIGITS = 15;
@@ -94,7 +96,7 @@ export class ProfileService {
     // Setup runs once. A second save can only be a stale screen or a retry
     // after the first one landed, and either way it must not overwrite a
     // profile that is already there.
-    if (user.profileCompletedAt) {
+    if (user.profile_completed_at) {
       throw new ConflictException('Your profile has already been set up.');
     }
 
@@ -113,11 +115,35 @@ export class ProfileService {
       throw new BadRequestException('Enter a valid date of birth.');
     }
 
+    this.assertQuestionnaireConsistent(dto, age);
+
     const patch: Partial<User> = {
-      fullName: dto.fullName.trim().replace(/\s+/g, ' '),
+      full_name: dto.full_name.trim().replace(/\s+/g, ' '),
       gender: dto.gender,
       dob: dto.dob,
-      profileCompletedAt: new Date().toISOString(),
+      profile_completed_at: new Date().toISOString(),
+
+      // The questionnaire, stored under the wire names it arrived with.
+      p_duration: dto.p_duration,
+      first_symptom: dto.first_symptom,
+      first_affected_part: dto.first_affected_part,
+      // Normalised to null rather than left undefined, so "no history" is a
+      // stored answer instead of a missing key indistinguishable from an old
+      // row that was never asked.
+      recc_falls: dto.recc_falls ?? null,
+      recc_falls_type:
+        dto.recc_falls == null ? null : (dto.recc_falls_type ?? []),
+      psychiatric: dto.psychiatric,
+      addiction: dto.addiction ?? null,
+      rem: dto.rem,
+      non_motor_symptoms: dto.non_motor_symptoms,
+      diabetes_yrs: dto.diabetes_yrs ?? null,
+      hypertension_yrs: dto.hypertension_yrs ?? null,
+      thyroid_yrs: dto.thyroid_yrs ?? null,
+      family_p_history: dto.family_p_history,
+      walk_independent: dto.walk_independent,
+      assistance_needed: dto.assistance_needed,
+      dose_mode: dto.dose_mode,
     };
 
     if (dto.email !== undefined) {
@@ -138,6 +164,51 @@ export class ProfileService {
       message: 'Your profile is all set.',
       data: { user: updated },
     };
+  }
+
+  /**
+   * The rules that span more than one answer, which the DTO decorators can't
+   * see: a follow-up has to match the answer that revealed it, and nothing can
+   * have been true for longer than the person has been alive.
+   */
+  private assertQuestionnaireConsistent(
+    dto: CompleteProfileDto,
+    age: number,
+  ): void {
+    if (dto.p_duration > age * MONTHS_PER_YEAR) {
+      throw new BadRequestException(
+        'You cannot have had Parkinson\u2019s disease for longer than your age.',
+      );
+    }
+
+    // A count means there were falls, so how they came about has to come with
+    // it. Null is "no history", and characterising falls that never happened
+    // would be recording an answer nobody was asked for.
+    if (dto.recc_falls != null && !dto.recc_falls_type?.length) {
+      throw new BadRequestException(
+        'Say whether the falls were provoked or unprovoked.',
+      );
+    }
+    if (dto.recc_falls == null && dto.recc_falls_type?.length) {
+      throw new BadRequestException(
+        'Enter how many falls you had in the last year.',
+      );
+    }
+
+    // Named so the message can say which condition was wrong, rather than
+    // making the user work out which of the three the server meant.
+    const conditions: Array<[string, number | null | undefined]> = [
+      ['Diabetes', dto.diabetes_yrs],
+      ['Hypertension', dto.hypertension_yrs],
+      ['Thyroid disorder', dto.thyroid_yrs],
+    ];
+    conditions.forEach(([label, years]) => {
+      if (years !== undefined && years !== null && years > age) {
+        throw new BadRequestException(
+          `${label} cannot have lasted longer than your age.`,
+        );
+      }
+    });
   }
 
   private acceptEmail(user: User, incoming: string): string {

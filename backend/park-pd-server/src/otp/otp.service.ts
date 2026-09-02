@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as crypto from 'crypto';
+import { dataFile } from '../common/data-store';
 
 export type OtpPurpose = 'login' | 'signup';
 
@@ -40,7 +40,7 @@ export class OtpService {
   private readonly logger = new Logger(OtpService.name);
 
   //path to fake db file
-  private readonly filePath = path.join(process.cwd(), 'otp-store.json');
+  private readonly filePath = dataFile('otp-store.json');
 
   constructor(private configService: ConfigService) {
     // if the file doesn't exist, create it with an empty array

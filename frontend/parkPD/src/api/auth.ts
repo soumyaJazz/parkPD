@@ -48,11 +48,11 @@ export function requestOtp(
 export type AuthUser = {
   id: string;
   email: string;
-  createdAt: string;
+  created_at: string;
   // Everything below is filled in by profile setup, which runs once straight
   // after sign-up - so an account exists without them for the minute in
   // between, and older rows on the server never had them at all.
-  fullName?: string;
+  full_name?: string;
   phone?: string;
   gender?: Gender;
   /** DD/MM/YYYY - the single field the profile form sends. */
@@ -63,7 +63,7 @@ export type AuthUser = {
    * comes from the server rather than being remembered on the device, so a
    * setup abandoned half way is still owed after a reinstall.
    */
-  profileCompletedAt?: string;
+  profile_completed_at?: string;
 };
 
 /**

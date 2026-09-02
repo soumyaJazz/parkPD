@@ -2,13 +2,17 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
+import { SetupDraftProvider } from '../context/SetupDraftContext';
 import HomeScreen from '../screens/Home';
 import LoginScreen from '../screens/Login';
+import MorningCheckScreen from '../screens/MorningCheck';
 import OtpScreen from '../screens/Otp';
+import ProfileQuestionsScreen from '../screens/ProfileQuestions';
 import ProfileSetupScreen from '../screens/ProfileSetup';
 import SignUpScreen from '../screens/SignUp';
 import { colors } from '../theme';
 import type { AuthFlow, AuthMethod } from '../types/auth';
+import type { ProfileDetails } from '../types/profile';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -42,7 +46,24 @@ export type RootStackParamList = {
     email?: string;
     phone?: string;
   };
+  ProfileQuestions: {
+    /**
+     * What the details screen collected. Carried rather than saved: the server
+     * completes a profile once, so both halves go up in a single request at
+     * the end of the questionnaire.
+     */
+    details: ProfileDetails;
+  };
   Home: undefined;
+  /** The first of the three parts of a day's log - see `screens/MorningCheck`. */
+  MorningCheck: {
+    /**
+     * The day being logged, as `dayKey()` - `YYYY-MM-DD` in local time. A
+     * string rather than a Date: route params are serialised, and a Date that
+     * has been through that comes back as one.
+     */
+    date: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -72,26 +93,45 @@ function AppNavigator() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {user === null ? (
-          <>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="SignUp" component={SignUpScreen} />
-            <Stack.Screen name="Otp" component={OtpScreen} />
-          </>
-        ) : user.profileCompletedAt ? (
-          <Stack.Screen name="Home" component={HomeScreen} />
-        ) : (
-          // Setup is owed. The flag comes from the server, so abandoning this
-          // screen - or reinstalling - still lands back here rather than
-          // skipping into an app with a half-filled account.
-          <Stack.Screen
-            name="ProfileSetup"
-            component={ProfileSetupScreen}
-            initialParams={{ email: user.email }}
-          />
-        )}
-      </Stack.Navigator>
+      {/* Above the navigator, so the questionnaire's answers survive stepping
+          back to the details screen and popping the screen that holds them. */}
+      <SetupDraftProvider>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {user === null ? (
+            <>
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="SignUp" component={SignUpScreen} />
+              <Stack.Screen name="Otp" component={OtpScreen} />
+            </>
+          ) : user.profile_completed_at ? (
+            // Setup is done, so the app proper is what exists: the home screen
+            // and the log a day opens into.
+            <>
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen
+                name="MorningCheck"
+                component={MorningCheckScreen}
+              />
+            </>
+          ) : (
+            // Setup is owed, and it runs over two screens - the details, then
+            // the questionnaire - so both live in this branch. The flag comes
+            // from the server, so abandoning either one, or reinstalling, still
+            // lands back here rather than skipping into a half-filled account.
+            <>
+              <Stack.Screen
+                name="ProfileSetup"
+                component={ProfileSetupScreen}
+                initialParams={{ email: user.email }}
+              />
+              <Stack.Screen
+                name="ProfileQuestions"
+                component={ProfileQuestionsScreen}
+              />
+            </>
+          )}
+        </Stack.Navigator>
+      </SetupDraftProvider>
     </NavigationContainer>
   );
 }

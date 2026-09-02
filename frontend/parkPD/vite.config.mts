@@ -16,6 +16,15 @@ export default defineConfig({
        * react-native-web counterpart and break the dependency scanner.
        */
       { find: /^react-native$/, replacement: 'react-native-web' },
+      /**
+       * react-native-svg reaches for React Native's own asset registry, which
+       * is a native-only package. react-native-web ships the same module for
+       * the DOM, and pointing at it is what the RNW docs prescribe.
+       */
+      {
+        find: '@react-native/assets-registry/registry',
+        replacement: 'react-native-web/dist/modules/AssetRegistry',
+      },
     ],
     /**
      * `.web.*` wins on web, the way Metro prefers `.ios.*` / `.android.*`.
@@ -41,11 +50,33 @@ export default defineConfig({
   },
   optimizeDeps: {
     /**
-     * Only the packages shipping per-platform files (`.web.js` alongside native
-     * ones) are excluded: the pre-bundler's scanner ignores the `.web.*`
-     * resolution order and would pull in native-only specs. Everything else,
-     * react-navigation included, must stay pre-bundled so its CommonJS
-     * dependencies (e.g. use-latest-callback) get proper ESM interop.
+     * The dependency pre-bundler resolves on its own, and by default it knows
+     * nothing about `.web.*` - which is how it ended up reading React Native's
+     * Flow source through a package's native entry. Giving it the same order
+     * the app uses is what keeps the two halves agreeing.
+     */
+    rolldownOptions: {
+      resolve: {
+        extensions: [
+          '.web.tsx',
+          '.web.ts',
+          '.web.jsx',
+          '.web.js',
+          '.tsx',
+          '.ts',
+          '.jsx',
+          '.js',
+          '.json',
+        ],
+      },
+    },
+    /**
+     * These two ship per-platform files and are left unbundled, so Vite's own
+     * resolver picks the `.web.*` half at request time.
+     *
+     * react-native-svg is deliberately not in this list: one of its generated
+     * parsers is CommonJS even inside its ESM build, and pre-bundling is what
+     * converts that into something a browser can import.
      */
     exclude: ['react-native-safe-area-context', 'react-native-screens'],
   },

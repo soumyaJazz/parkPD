@@ -8,13 +8,17 @@ import {
 } from '../../theme';
 
 export const styles = StyleSheet.create({
-  /**
-   * flexGrow, so short content still fills the frame and the spacer above the
-   * button can push it to the bottom; taller content just scrolls past.
-   */
+  // flexGrow, so a short form still fills the frame; a taller one scrolls.
   content: {
     flexGrow: 1,
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+  // Sits under the scroll rather than inside it, so "Next" is on screen from
+  // the moment the form opens.
+  footer: {
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   subtext: {
     marginBottom: 26,
@@ -144,8 +148,5 @@ export const styles = StyleSheet.create({
     fontSize: fontSize.caption,
     color: colors.muted,
     marginTop: spacing.sm,
-  },
-  submit: {
-    marginTop: spacing.lg,
   },
 });
