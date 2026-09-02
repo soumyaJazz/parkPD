@@ -16,9 +16,9 @@ import {
   FollowUp,
   QuestionCard,
   Scale,
-  TimePicker,
 } from '../../components/Questionnaire';
 import type { Answer } from '../../components/Questionnaire';
+import TimePicker, { TimeField } from '../../components/TimePicker';
 import { showToast } from '../../components/Toast';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, globalStyles, minInset } from '../../theme';
@@ -75,6 +75,7 @@ function MorningCheckScreen({ navigation, route }: Props) {
     EMPTY_MORNING_CHECK,
   );
   const [errors, setErrors] = useState<Errors>({});
+  const [isClockOpen, setClockOpen] = useState(false);
 
   const day = useMemo(() => parseDayKey(route.params.date), [route.params.date]);
 
@@ -190,11 +191,12 @@ function MorningCheckScreen({ navigation, route }: Props) {
 
           <QuestionCard
             question="At what time did you wake up?"
-            hint="Press − or + to move the time. It starts at 7:00 AM, so change it to the time you actually woke up."
+            hint="It starts at 7:00 AM. Tap the time to change it to when you actually woke up."
           >
-            <TimePicker
+            <TimeField
               value={answers.wakeTime}
-              onChange={value => set('wakeTime', value)}
+              onPress={() => setClockOpen(true)}
+              label="Wake-up time"
             />
           </QuestionCard>
 
@@ -284,6 +286,14 @@ function MorningCheckScreen({ navigation, route }: Props) {
           </Text>
         </ScrollView>
       </View>
+
+      <TimePicker
+        visible={isClockOpen}
+        value={answers.wakeTime}
+        title="SELECT WAKE-UP TIME"
+        onSelect={value => set('wakeTime', value)}
+        onClose={() => setClockOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

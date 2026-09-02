@@ -4,7 +4,6 @@ import {
   feedback,
   fontSize,
   fontWeight,
-  letterSpacing,
   lineHeight,
   radius,
   spacing,
@@ -367,70 +366,5 @@ export const scaleStyles = StyleSheet.create({
   },
   endLabelRight: {
     textAlign: 'right',
-  },
-});
-
-/** The wake-up clock: what it currently says, then the controls that set it. */
-export const timeStyles = StyleSheet.create({
-  // The whole answer at a glance, large and centred, before any of the
-  // controls that changed it.
-  display: {
-    fontSize: 40,
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
-    textAlign: 'center',
-    paddingVertical: spacing.lg,
-    marginBottom: spacing.lg,
-    borderRadius: radius.md,
-    backgroundColor: feedback.info.bg,
-  },
-  field: {
-    marginBottom: spacing.lg,
-  },
-  fieldLabel: {
-    fontSize: fontSize.small,
-    fontWeight: fontWeight.semibold,
-    color: colors.subtext,
-    letterSpacing: letterSpacing.label,
-    marginBottom: spacing.sm,
-  },
-  fieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  fieldValue: {
-    flex: 1,
-    minWidth: 0,
-    textAlign: 'center',
-    fontSize: 30,
-    fontWeight: fontWeight.bold,
-    color: colors.text,
-  },
-  meridiemRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  meridiem: {
-    flex: 1,
-    minHeight: STEP_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  meridiemSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  meridiemText: {
-    fontSize: 18,
-    fontWeight: fontWeight.semibold,
-    color: colors.text,
-  },
-  meridiemTextSelected: {
-    color: colors.white,
   },
 });

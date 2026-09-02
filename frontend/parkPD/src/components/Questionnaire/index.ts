@@ -9,5 +9,4 @@ export {
   questionStyles,
 } from './Questionnaire';
 export type { Answer } from './Questionnaire';
-export { Scale, StepButton } from './Scale';
-export { default as TimePicker } from './TimePicker';
+export { Scale } from './Scale';
