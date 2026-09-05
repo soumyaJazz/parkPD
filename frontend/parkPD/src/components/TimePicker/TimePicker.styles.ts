@@ -126,6 +126,15 @@ export const styles = StyleSheet.create({
     color: colors.white,
   },
 
+  /**
+   * Holds whichever way in is showing, and is what the PM notice is measured
+   * against - anchored to the bottom of this, so it covers the dial rather
+   * than the reading above it or the buttons below.
+   */
+  body: {
+    position: 'relative',
+  },
+
   // --- The dial -------------------------------------------------------------
   // Says which half the dial is setting, since the dial moves on by itself once
   // an hour is chosen and a changed ring of numbers is a quiet way to say so.
@@ -248,12 +257,105 @@ export const styles = StyleSheet.create({
   },
 });
 
-/** The trigger on the question itself: the answer, large and centred, in blue. */
-export const fieldStyles = StyleSheet.create({
-  field: {
-    minHeight: 96,
+/**
+ * The warning over the dial when a morning time is set to PM.
+ *
+ * Its own card rather than the app's toast: a toast is drawn at the root of
+ * the app, which on both platforms is behind this modal's native window, so
+ * one raised from in here would never be seen.
+ */
+export const noticeStyles = StyleSheet.create({
+  notice: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: feedback.warning.line,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingLeft: spacing.lg + 4,
+    boxShadow: '0px 6px 20px rgba(16, 24, 40, 0.16)',
+  },
+  /**
+   * The amber edge. It repeats what the words already say rather than being
+   * the only thing that says it, so nothing is lost if the colour isn't seen.
+   */
+  accent: {
+    position: 'absolute',
+    left: 0,
+    top: 12,
+    bottom: 12,
+    width: 4,
+    borderRadius: 4,
+    backgroundColor: feedback.warning.fg,
+  },
+  title: {
+    fontSize: 18,
+    lineHeight: 25,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  message: {
+    fontSize: fontSize.button,
+    lineHeight: 23,
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  // Stacked and full width: two half-width answers that mean opposite things
+  // would sit a thumb's width apart.
+  button: {
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+  },
+  /** The likelier of the two answers, so it is the filled one. */
+  fix: {
+    backgroundColor: colors.primary,
+  },
+  fixPressed: {
+    backgroundColor: colors.primaryPressed,
+  },
+  fixText: {
+    fontSize: fontSize.button,
+    fontWeight: fontWeight.semibold,
+    color: colors.white,
+  },
+  keep: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  keepPressed: {
+    backgroundColor: colors.surface,
+  },
+  keepText: {
+    fontSize: fontSize.button,
+    fontWeight: fontWeight.semibold,
+    color: colors.text,
+  },
+});
+
+/** The trigger on the question itself: the answer, large and centred, in blue. */
+export const fieldStyles = StyleSheet.create({
+  /**
+   * One row rather than a stacked panel. The reading and the invitation sit
+   * side by side, which is a third of the height and still well past the touch
+   * floor - these questions have a lot else to fit on the screen with them.
+   */
+  field: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    minHeight: 60,
+    paddingHorizontal: spacing.lg,
     borderRadius: radius.md,
     borderWidth: 2,
     borderColor: feedback.info.line,
@@ -262,16 +364,27 @@ export const fieldStyles = StyleSheet.create({
   fieldPressed: {
     borderColor: colors.primary,
   },
+  // Dashed and plain until answered, so an unset time doesn't read as a
+  // reading the question already has.
+  fieldEmpty: {
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
   time: {
-    fontSize: 40,
+    fontSize: 28,
     fontWeight: fontWeight.bold,
     color: colors.primary,
   },
-  // Says the reading is a button, which a number on a tinted panel does not.
-  action: {
-    fontSize: fontSize.button,
+  timeEmpty: {
+    fontSize: fontSize.button + 2,
     fontWeight: fontWeight.semibold,
     color: colors.subtext,
-    marginTop: spacing.xs,
+  },
+  // Says the reading is a button, which a number on a tinted panel does not.
+  action: {
+    fontSize: fontSize.small,
+    fontWeight: fontWeight.semibold,
+    color: colors.subtext,
   },
 });

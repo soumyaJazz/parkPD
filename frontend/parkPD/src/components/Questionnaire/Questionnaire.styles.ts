@@ -4,6 +4,7 @@ import {
   feedback,
   fontSize,
   fontWeight,
+  letterSpacing,
   lineHeight,
   radius,
   spacing,
@@ -76,13 +77,15 @@ export const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
+  // Rounded pills. Fully round rather than softly cornered, which is what
+  // separates a chip you pick from a card you read.
   chip: {
     minHeight: TARGET,
     justifyContent: 'center',
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
-    borderWidth: 1,
+    paddingHorizontal: spacing.xl - 4,
+    borderRadius: TARGET / 2,
+    borderWidth: 1.5,
     borderColor: colors.border,
     backgroundColor: colors.background,
   },
@@ -366,5 +369,60 @@ export const scaleStyles = StyleSheet.create({
   },
   endLabelRight: {
     textAlign: 'right',
+  },
+});
+
+/**
+ * A span of time, entered as hours and minutes and said back as one phrase.
+ *
+ * The phrase is the point: 75 minutes is a number the reader has to convert,
+ * and "1 hr 15 mins" is the same answer already converted. The fields tidy
+ * themselves up to match when they are left.
+ */
+export const durationStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  field: {
+    flex: 1,
+    minWidth: 0,
+  },
+  label: {
+    fontSize: fontSize.small,
+    fontWeight: fontWeight.semibold,
+    color: colors.subtext,
+    letterSpacing: letterSpacing.label,
+    marginBottom: spacing.sm,
+  },
+  input: {
+    fontSize: 24,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  inputFilled: {
+    borderColor: colors.primary,
+  },
+  readout: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: feedback.info.bg,
+  },
+  readoutText: {
+    fontSize: fontSize.button + 2,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+    textAlign: 'center',
+  },
+  readoutEmpty: {
+    color: colors.subtext,
+    fontWeight: fontWeight.semibold,
   },
 });

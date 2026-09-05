@@ -13,6 +13,7 @@ import Svg, { Circle, Line } from 'react-native-svg';
 import { colors } from '../../theme';
 import { MINUTE_STEP, formatTime12 } from '../../utils/date';
 import type { TimeOfDay } from '../../utils/date';
+import PmNotice from './PmNotice';
 import { NUMBER, dialMetrics, styles } from './TimePicker.styles';
 
 /** Which half of the time the dial is setting. */
@@ -63,6 +64,12 @@ type Props = {
   value: TimeOfDay;
   /** Named in the card's heading, e.g. "Select wake-up time". */
   title: string;
+  /**
+   * This time is expected to be a morning one, so choosing PM raises a warning.
+   * Off by default: a dose at 8 PM is an ordinary answer and must not be
+   * questioned every time it is given.
+   */
+  expectMorning?: boolean;
   /** Only ever called from OK - the dial moving is not yet an answer. */
   onSelect: (value: TimeOfDay) => void;
   onClose: () => void;
@@ -79,7 +86,14 @@ type Props = {
  * aim, and this app is built for hands that may not have it - so "Type the
  * time" swaps the face for two labelled fields that need none.
  */
-function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
+function TimePicker({
+  visible,
+  value,
+  title,
+  expectMorning = false,
+  onSelect,
+  onClose,
+}: Props) {
   const { width } = useWindowDimensions();
   const { size, center, ring } = dialMetrics(width);
 
@@ -90,6 +104,22 @@ function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
   );
   const [part, setPart] = useState<Part>('hour');
   const [entry, setEntry] = useState<Entry>('dial');
+  /**
+   * What the typed fields show while they are being typed into, which is not
+   * always a time yet: "1" on the way to "11" is a single digit, and "0" on the
+   * way to "05" is not an hour at all. Null means nothing is part-typed and the
+   * field shows the committed number, padded.
+   */
+  const [hourText, setHourText] = useState<string | null>(null);
+  const [minuteText, setMinuteText] = useState<string | null>(null);
+
+  /**
+   * The PM warning, held as the id of the raising rather than a flag, so that
+   * pressing PM again while it is up remounts it and its timer starts over.
+   * Null is no warning showing.
+   */
+  const [pmNotice, setPmNotice] = useState<number | null>(null);
+  const noticeCount = useRef(0);
 
   // Reopening starts from the time in hand rather than from wherever the last
   // visit was left, and always on the hour.
@@ -100,6 +130,9 @@ function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
       setMeridiem(value.hour < 12 ? 'AM' : 'PM');
       setPart('hour');
       setEntry('dial');
+      setHourText(null);
+      setMinuteText(null);
+      setPmNotice(null);
     }
   }, [visible, value]);
 
@@ -170,23 +203,52 @@ function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
     [],
   );
 
+  /**
+   * What is typed is kept as typed, and only committed once it reads as a time.
+   *
+   * The field cannot show the padded number while it is being typed into: at
+   * two characters it is already full, and every keystroke after the first
+   * would be refused - which is what stopped "11" from ever being reachable.
+   */
   const handleType = (next: Part, raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 2);
-    if (digits === '') {
-      // Cleared on the way to typing something else; 12 and 00 are the values
-      // an empty field falls back to rather than a blank the card can't use.
-      if (next === 'hour') {
-        setHour(POSITIONS);
-      } else {
-        setMinute(0);
-      }
+    const ceiling = next === 'hour' ? 12 : 59;
+    // Held at the top of the range rather than taking a number the clock can't
+    // show. Everything below it is left exactly as typed.
+    const text =
+      digits !== '' && Number(digits) > ceiling ? `${ceiling}` : digits;
+
+    if (next === 'hour') {
+      setHourText(text);
+    } else {
+      setMinuteText(text);
+    }
+
+    if (text === '') {
       return;
     }
-    const parsed = Number(digits);
+    const parsed = Number(text);
     if (next === 'hour') {
-      setHour(Math.min(12, Math.max(1, parsed)));
+      // A lone "0" is a keystroke on the way to "05", not an hour - so the
+      // field keeps showing it while the clock keeps the last real answer.
+      if (parsed >= 1) {
+        setHour(parsed);
+      }
     } else {
-      setMinute(Math.min(59, parsed));
+      setMinute(parsed);
+    }
+  };
+
+  /**
+   * Leaving a field hands it back to the committed number, padded. An hour
+   * abandoned at "0" or empty falls back to what it was rather than to a time
+   * that was never chosen.
+   */
+  const handleTypingDone = (next: Part) => {
+    if (next === 'hour') {
+      setHourText(null);
+    } else {
+      setMinuteText(null);
     }
   };
 
@@ -266,7 +328,17 @@ function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
                       styles.meridiem,
                       isSelected && styles.meridiemSelected,
                     ]}
-                    onPress={() => setMeridiem(option)}
+                    onPress={() => {
+                      setMeridiem(option);
+                      // Raised where the answer is almost certainly a morning
+                      // one: AM and PM are two small look-alike buttons side
+                      // by side, and 7 PM looks no more wrong than 7 AM does.
+                      setPmNotice(
+                        expectMorning && option === 'PM'
+                          ? ++noticeCount.current
+                          : null,
+                      );
+                    }}
                     accessibilityRole="radio"
                     accessibilityLabel={
                       option === 'AM'
@@ -289,124 +361,143 @@ function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
             </View>
           </View>
 
-          {entry === 'dial' ? (
-            <>
-              <Text style={styles.dialCaption}>
-                {isHour ? 'Choose the hour' : 'Choose the minutes'}
-              </Text>
+          <View style={styles.body}>
+            {entry === 'dial' ? (
+              <>
+                <Text style={styles.dialCaption}>
+                  {isHour ? 'Choose the hour' : 'Choose the minutes'}
+                </Text>
 
-              <View style={styles.dialWrap}>
-                <View
-                  style={[
-                    styles.dial,
-                    { width: size, height: size, borderRadius: size / 2 },
-                  ]}
-                  {...responder.panHandlers}
-                  accessibilityRole="adjustable"
-                  accessibilityLabel={
-                    isHour ? 'Hour dial' : 'Minute dial'
-                  }
-                  accessibilityValue={{ text: formatTime12(picked) }}
-                  accessibilityActions={[
-                    { name: 'increment' },
-                    { name: 'decrement' },
-                  ]}
-                  onAccessibilityAction={event => {
-                    const step =
-                      event.nativeEvent.actionName === 'increment' ? 1 : -1;
-                    if (isHour) {
-                      setHour(((hour - 1 + step + POSITIONS) % POSITIONS) + 1);
-                    } else {
-                      setMinute((minute + step * MINUTE_STEP + 60) % 60);
-                    }
-                  }}
-                >
-                  <Svg
-                    width={size}
-                    height={size}
-                    style={StyleSheet.absoluteFill}
-                    pointerEvents="none"
-                  >
-                    <Line
-                      x1={center}
-                      y1={center}
-                      x2={tip.x}
-                      y2={tip.y}
-                      stroke={colors.primary}
-                      strokeWidth={2}
-                    />
-                    <Circle cx={center} cy={center} r={4} fill={colors.primary} />
-                  </Svg>
-
-                  {/* Drawn over the hand, so the puck covers where it ends.
-                      Hidden from screen readers: they cannot aim at a ring, and
-                      the dial above and the typed fields both answer for them. */}
+                <View style={styles.dialWrap}>
                   <View
-                    style={StyleSheet.absoluteFill}
-                    pointerEvents="none"
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
+                    style={[
+                      styles.dial,
+                      { width: size, height: size, borderRadius: size / 2 },
+                    ]}
+                    {...responder.panHandlers}
+                    accessibilityRole="adjustable"
+                    accessibilityLabel={
+                      isHour ? 'Hour dial' : 'Minute dial'
+                    }
+                    accessibilityValue={{ text: formatTime12(picked) }}
+                    accessibilityActions={[
+                      { name: 'increment' },
+                      { name: 'decrement' },
+                    ]}
+                    onAccessibilityAction={event => {
+                      const step =
+                        event.nativeEvent.actionName === 'increment' ? 1 : -1;
+                      if (isHour) {
+                        setHour(((hour - 1 + step + POSITIONS) % POSITIONS) + 1);
+                      } else {
+                        setMinute((minute + step * MINUTE_STEP + 60) % 60);
+                      }
+                    }}
                   >
-                    {numbers.map(number => {
-                      const isSelected =
-                        number.value === (isHour ? hour : minute);
-                      return (
-                        <View
-                          key={number.value}
-                          style={[
-                            styles.number,
-                            { left: number.left, top: number.top },
-                            isSelected && styles.numberSelected,
-                          ]}
-                        >
-                          <Text
+                    <Svg
+                      width={size}
+                      height={size}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    >
+                      <Line
+                        x1={center}
+                        y1={center}
+                        x2={tip.x}
+                        y2={tip.y}
+                        stroke={colors.primary}
+                        strokeWidth={2}
+                      />
+                      <Circle cx={center} cy={center} r={4} fill={colors.primary} />
+                    </Svg>
+
+                    {/* Drawn over the hand, so the puck covers where it ends.
+                        Hidden from screen readers: they cannot aim at a ring, and
+                        the dial above and the typed fields both answer for them. */}
+                    <View
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    >
+                      {numbers.map(number => {
+                        const isSelected =
+                          number.value === (isHour ? hour : minute);
+                        return (
+                          <View
+                            key={number.value}
                             style={[
-                              styles.numberText,
-                              isSelected && styles.numberTextSelected,
+                              styles.number,
+                              { left: number.left, top: number.top },
+                              isSelected && styles.numberSelected,
                             ]}
                           >
-                            {isHour ? number.value : pad(number.value)}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                            <Text
+                              style={[
+                                styles.numberText,
+                                isSelected && styles.numberTextSelected,
+                              ]}
+                            >
+                              {isHour ? number.value : pad(number.value)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
                   </View>
                 </View>
-              </View>
-            </>
-          ) : (
-            <View style={styles.entry}>
-              <View style={styles.entryRow}>
-                <View style={styles.entryField}>
-                  <Text style={styles.entryLabel}>Hour</Text>
-                  <TextInput
-                    style={styles.entryInput}
-                    value={pad(hour)}
-                    onChangeText={raw => handleType('hour', raw)}
-                    selectTextOnFocus
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    accessibilityLabel="Hour, 1 to 12"
-                  />
+              </>
+            ) : (
+              <View style={styles.entry}>
+                <View style={styles.entryRow}>
+                  <View style={styles.entryField}>
+                    <Text style={styles.entryLabel}>Hour</Text>
+                    <TextInput
+                      style={styles.entryInput}
+                      value={hourText ?? pad(hour)}
+                      onChangeText={raw => handleType('hour', raw)}
+                      onBlur={() => handleTypingDone('hour')}
+                      selectTextOnFocus
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      accessibilityLabel="Hour, 1 to 12"
+                    />
+                  </View>
+                  <View style={styles.entryField}>
+                    <Text style={styles.entryLabel}>Minutes</Text>
+                    <TextInput
+                      style={styles.entryInput}
+                      value={minuteText ?? pad(minute)}
+                      onChangeText={raw => handleType('minute', raw)}
+                      onBlur={() => handleTypingDone('minute')}
+                      selectTextOnFocus
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      accessibilityLabel="Minutes, 0 to 59"
+                    />
+                  </View>
                 </View>
-                <View style={styles.entryField}>
-                  <Text style={styles.entryLabel}>Minutes</Text>
-                  <TextInput
-                    style={styles.entryInput}
-                    value={pad(minute)}
-                    onChangeText={raw => handleType('minute', raw)}
-                    selectTextOnFocus
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    accessibilityLabel="Minutes, 0 to 59"
-                  />
-                </View>
+                <Text style={styles.entryHint}>
+                  Hour 1 to 12, minutes 0 to 59. Choose AM or PM above.
+                </Text>
               </View>
-              <Text style={styles.entryHint}>
-                Hour 1 to 12, minutes 0 to 59. Choose AM or PM above.
-              </Text>
-            </View>
-          )}
+            )}
+
+            {/* Drawn last, so it sits over the face rather than under it,
+                and anchored to the bottom of this block so the reading and
+                the buttons stay visible while it is up. */}
+            {pmNotice !== null && (
+              <PmNotice
+                key={pmNotice}
+                time={formatTime12(picked)}
+                onUseMorning={() => {
+                  setMeridiem('AM');
+                  setPmNotice(null);
+                }}
+                onKeep={() => setPmNotice(null)}
+              />
+            )}
+          </View>
 
           <View style={styles.footer}>
             <Pressable
@@ -414,7 +505,11 @@ function TimePicker({ visible, value, title, onSelect, onClose }: Props) {
                 styles.modeButton,
                 pressed && styles.modeButtonPressed,
               ]}
-              onPress={() => setEntry(entry === 'dial' ? 'keyboard' : 'dial')}
+              onPress={() => {
+                setEntry(entry === 'dial' ? 'keyboard' : 'dial');
+                setHourText(null);
+                setMinuteText(null);
+              }}
               accessibilityRole="button"
             >
               <Text style={styles.modeButtonText}>

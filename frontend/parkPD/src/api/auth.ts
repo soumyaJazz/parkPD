@@ -1,5 +1,6 @@
 import type { AuthFlow, AuthMethod } from '../types/auth';
 import type { Gender } from '../types/profile';
+import type { DoseMode } from '../types/questionnaire';
 import { ApiError, get, post } from './client';
 import type { ApiResult } from './client';
 
@@ -57,6 +58,12 @@ export type AuthUser = {
   gender?: Gender;
   /** DD/MM/YYYY - the single field the profile form sends. */
   dob?: string;
+  /**
+   * How the user asked to be given the dose questions - one at a time, or all
+   * on one scrolling page. Chosen during setup; absent on an account saved
+   * before the question existed, which reads as the one-at-a-time default.
+   */
+  dose_mode?: DoseMode;
   /**
    * Set once, when setup is saved. Absent means the form is still owed, which
    * is what the navigator reads to decide where a signed-in user lands. It

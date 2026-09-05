@@ -3,15 +3,28 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import { SetupDraftProvider } from '../context/SetupDraftContext';
+import DoseLogScreen from '../screens/DoseLog';
 import HomeScreen from '../screens/Home';
 import LoginScreen from '../screens/Login';
 import MorningCheckScreen from '../screens/MorningCheck';
+import NightReviewScreen from '../screens/NightReview';
+import OtherMedsScreen from '../screens/OtherMeds';
+import ReviewScreen from '../screens/Review';
+import SideEffectsScreen from '../screens/SideEffects';
 import OtpScreen from '../screens/Otp';
 import ProfileQuestionsScreen from '../screens/ProfileQuestions';
 import ProfileSetupScreen from '../screens/ProfileSetup';
 import SignUpScreen from '../screens/SignUp';
 import { colors } from '../theme';
 import type { AuthFlow, AuthMethod } from '../types/auth';
+import type {
+  DailyLogParts,
+  MedicationPlan,
+  MorningCheck,
+  OtherMeds,
+  SideEffects,
+} from '../types/dailyLog';
+import type { DoseLog } from '../types/doseLog';
 import type { ProfileDetails } from '../types/profile';
 
 export type RootStackParamList = {
@@ -64,6 +77,61 @@ export type RootStackParamList = {
      */
     date: string;
   };
+  /** The second part: the nine questions, once per dose - see `screens/DoseLog`. */
+  DoseLog: {
+    date: string;
+    /**
+     * The morning check, already in the shape it will be sent in.
+     *
+     * Carried forward rather than saved: the day's log goes up as one request
+     * after the review at the end, so each step hands the next everything
+     * gathered so far. Params are serialised, and this is plain JSON.
+     */
+    morning: MorningCheck;
+    /** Which medicine, and how many times it is taken - so how many doses to ask about. */
+    plan: MedicationPlan;
+  };
+  /**
+   * The third part: the questions asked once for the whole day rather than
+   * once per dose - see `screens/OtherMeds`.
+   */
+  OtherMeds: {
+    date: string;
+    morning: MorningCheck;
+    plan: MedicationPlan;
+    /**
+     * Every dose of the day, already in the shape it will be sent in. Empty
+     * when the medicine was not taken at all, which is a day with common
+     * questions but no doses to have asked them about.
+     */
+    doses: DoseLog[];
+  };
+  /** The second of the common questions - see `screens/SideEffects`. */
+  SideEffects: {
+    date: string;
+    morning: MorningCheck;
+    plan: MedicationPlan;
+    doses: DoseLog[];
+    /** What the question before this one collected. */
+    otherMeds: OtherMeds;
+  };
+  /** The last of the common questions - see `screens/NightReview`. */
+  NightReview: {
+    date: string;
+    morning: MorningCheck;
+    plan: MedicationPlan;
+    doses: DoseLog[];
+    otherMeds: OtherMeds;
+    sideEffects: SideEffects;
+  };
+  /**
+   * The last step: the whole day, checked over and sent - see `screens/Review`.
+   *
+   * Typed as the payload's own parts rather than listed again, because that is
+   * exactly what they are: the screen hands `route.params` straight to
+   * `toDailyLog`, so the two can never drift apart.
+   */
+  Review: DailyLogParts;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -112,6 +180,17 @@ function AppNavigator() {
                 name="MorningCheck"
                 component={MorningCheckScreen}
               />
+              <Stack.Screen name="DoseLog" component={DoseLogScreen} />
+              <Stack.Screen name="OtherMeds" component={OtherMedsScreen} />
+              <Stack.Screen
+                name="SideEffects"
+                component={SideEffectsScreen}
+              />
+              <Stack.Screen
+                name="NightReview"
+                component={NightReviewScreen}
+              />
+              <Stack.Screen name="Review" component={ReviewScreen} />
             </>
           ) : (
             // Setup is owed, and it runs over two screens - the details, then

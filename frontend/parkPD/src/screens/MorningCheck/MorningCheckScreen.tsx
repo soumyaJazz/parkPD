@@ -18,27 +18,41 @@ import {
   Scale,
 } from '../../components/Questionnaire';
 import type { Answer } from '../../components/Questionnaire';
+import StepHeader from '../../components/StepHeader';
 import TimePicker, { TimeField } from '../../components/TimePicker';
 import { showToast } from '../../components/Toast';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, globalStyles, minInset } from '../../theme';
-import type { DailyActivities, MorningCheckDraft } from '../../types/dailyLog';
+import type {
+  DailyActivities,
+  MedicationPlanDraft,
+  MorningCheckDraft,
+} from '../../types/dailyLog';
 import {
+  EMPTY_MEDICATION_PLAN,
   EMPTY_MORNING_CHECK,
   INDEPENDENCE,
   MORNING_SYMPTOMS,
   MORNING_SYMPTOM_OTHER,
   selectedMorningSymptoms,
+  toMedicationPlan,
+  toMorningCheck,
   toggleMorningSymptom,
 } from '../../types/dailyLog';
 import { formatFullDate, parseDayKey } from '../../utils/date';
+import { MedicineTabs, TimesStepper } from './parts';
 import { styles } from './MorningCheckScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MorningCheck'>;
 
-type Errors = Partial<Record<'symptoms' | 'dailyActivities', string>>;
+type Errors = Partial<
+  Record<'symptoms' | 'dailyActivities' | 'medicine', string>
+>;
 
-/** The morning check, then the doses, then the rest, then a look back at all three. */
+/**
+ * The morning and the day's plan, then the doses, then the questions asked once
+ * for the whole day, then a look back at all of it.
+ */
 const STEP = 1;
 const TOTAL_STEPS = 4;
 
@@ -71,13 +85,21 @@ const DAILY_ACTIVITY_ANSWERS: ReadonlyArray<Answer<DailyActivities>> = [
  */
 function MorningCheckScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const [answers, setAnswers] = useState<MorningCheckDraft>(
-    EMPTY_MORNING_CHECK,
-  );
+  const [answers, setAnswers] =
+    useState<MorningCheckDraft>(EMPTY_MORNING_CHECK);
   const [errors, setErrors] = useState<Errors>({});
   const [isClockOpen, setClockOpen] = useState(false);
+  /**
+   * The day's medication, asked here rather than on a screen of its own: it is
+   * settled once for the whole day, like everything else on this screen, and
+   * the dose questions that follow are asked once per dose.
+   */
+  const [plan, setPlan] = useState<MedicationPlanDraft>(EMPTY_MEDICATION_PLAN);
 
-  const day = useMemo(() => parseDayKey(route.params.date), [route.params.date]);
+  const day = useMemo(
+    () => parseDayKey(route.params.date),
+    [route.params.date],
+  );
 
   const set = <K extends keyof MorningCheckDraft>(
     key: K,
@@ -114,6 +136,12 @@ function MorningCheckScreen({ navigation, route }: Props) {
       next.dailyActivities = 'Choose one of the two answers';
     }
 
+    if (plan.medicine === null) {
+      next.medicine = 'Choose the medicine you are taking today';
+    }
+    // How many times needs no check: the stepper always holds a number, and
+    // zero is a real answer - a day the medicine was not taken.
+
     return next;
   };
 
@@ -133,14 +161,27 @@ function MorningCheckScreen({ navigation, route }: Props) {
       return;
     }
 
-    // TODO(daily log): open the dose questions for this day, carrying
-    // `toMorningCheck(answers)`. Until that screen exists the press still
-    // answers, rather than doing nothing.
-    showToast(
-      'Dose questions are not ready yet',
-      'Your morning answers are saved on this screen. The next part is still being built.',
-      'info',
-    );
+    // Nothing taken means there is no dose to ask about, so the nine dose
+    // questions have nothing to run over - but the questions asked once for
+    // the whole day still apply, so the doses are what gets skipped, not the
+    // rest of the log.
+    if (plan.timesTaken === 0) {
+      navigation.navigate('OtherMeds', {
+        date: route.params.date,
+        morning: toMorningCheck(answers),
+        plan: toMedicationPlan(plan),
+        doses: [],
+      });
+      return;
+    }
+
+    // Handed on in the shape it will be sent in. Going back leaves this screen
+    // mounted underneath, so the answers are still here on the way back.
+    navigation.navigate('DoseLog', {
+      date: route.params.date,
+      morning: toMorningCheck(answers),
+      plan: toMedicationPlan(plan),
+    });
   };
 
   const otherPicked =
@@ -165,34 +206,17 @@ function MorningCheckScreen({ navigation, route }: Props) {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={navigation.goBack}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <View style={styles.chevron} />
-          </TouchableOpacity>
+          <StepHeader
+            step={STEP}
+            totalSteps={TOTAL_STEPS}
+            title="Morning check"
+            subtitle={`How ${formatFullDate(
+              day,
+            )} started, and what you are taking today.`}
+            onBack={navigation.goBack}
+          />
 
-          <Text style={styles.stepLabel}>{`Step ${STEP} of ${TOTAL_STEPS}`}</Text>
-          <View style={styles.progressTrack}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${(STEP / TOTAL_STEPS) * 100}%` },
-              ]}
-            />
-          </View>
-
-          <Text style={globalStyles.title}>Morning check</Text>
-          <Text style={styles.dateLine}>
-            {`How ${formatFullDate(day)} started, before your first dose.`}
-          </Text>
-
-          <QuestionCard
-            question="At what time did you wake up?"
-            hint="It starts at 7:00 AM. Tap the time to change it to when you actually woke up."
-          >
+          <QuestionCard question="At what time did you wake up?">
             <TimeField
               value={answers.wakeTime}
               onPress={() => setClockOpen(true)}
@@ -257,33 +281,61 @@ function MorningCheckScreen({ navigation, route }: Props) {
           {/* The number from the question above is quoted back, so the two read
               as one thought rather than as two unrelated questions. */}
           <QuestionCard
-            question={`At ${answers.independence}% level, was your activity of daily living affected?`}
+            question={`At ${answers.independence}% level, were your activities of daily living affected?`}
             hint="Before your first dose today, did your Parkinson’s symptoms limit what you could do day-to-day?"
             error={errors.dailyActivities}
           >
             <AnswerStack
               options={DAILY_ACTIVITY_ANSWERS}
               value={answers.dailyActivities}
-              onChange={value => answer('dailyActivities', value, 'dailyActivities')}
+              onChange={value =>
+                answer('dailyActivities', value, 'dailyActivities')
+              }
             />
           </QuestionCard>
 
+          <QuestionCard
+            question="Which medicine are you taking?"
+            hint="This will be used throughout today's log."
+            error={errors.medicine}
+          >
+            <MedicineTabs
+              value={plan.medicine}
+              onChange={medicine => {
+                setPlan(previous => ({ ...previous, medicine }));
+                setErrors(previous => ({ ...previous, medicine: undefined }));
+              }}
+            />
+          </QuestionCard>
+
+          <QuestionCard
+            question={
+              plan.medicine === null
+                ? 'How many times did you take it today?'
+                : `How many times did you take ${plan.medicine} today?`
+            }
+          >
+            <Text style={styles.clarify}>
+              Count <Text style={styles.clarifyStrong}>how often</Text> you took
+              it — not how many tablets each time.
+            </Text>
+            <TimesStepper
+              value={plan.timesTaken}
+              onChange={timesTaken =>
+                setPlan(previous => ({ ...previous, timesTaken }))
+              }
+            />
+          </QuestionCard>
+
+          <Text style={styles.continueNote}>Next: your doses.</Text>
           <TouchableOpacity
-            style={[
-              globalStyles.button,
-              globalStyles.buttonReady,
-              styles.continue,
-            ]}
+            style={[globalStyles.button, globalStyles.buttonReady]}
             onPress={handleContinue}
             accessibilityRole="button"
             activeOpacity={0.9}
           >
             <Text style={globalStyles.buttonText}>Continue</Text>
           </TouchableOpacity>
-          <Text style={styles.continueNote}>
-            Next: your doses. Nothing is sent until you have reviewed all your
-            answers at the end.
-          </Text>
         </ScrollView>
       </View>
 
@@ -291,6 +343,7 @@ function MorningCheckScreen({ navigation, route }: Props) {
         visible={isClockOpen}
         value={answers.wakeTime}
         title="SELECT WAKE-UP TIME"
+        expectMorning
         onSelect={value => set('wakeTime', value)}
         onClose={() => setClockOpen(false)}
       />

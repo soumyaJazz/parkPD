@@ -166,3 +166,55 @@ export function parseDayKey(key: string): Date {
   const [year, month, day] = key.split('-').map(Number);
   return new Date(year, month - 1, day);
 }
+
+/** "07:00" back to the clock reading it names. */
+export function parseTime24(value: string): TimeOfDay {
+  const [hour, minute] = value.split(':').map(Number);
+  return { hour, minute };
+}
+
+/**
+ * The time `minutes` later, wrapping at midnight.
+ *
+ * A day's doses can run past midnight - a late one taken at 11pm wears off the
+ * following morning - so this rolls round rather than overflowing the hour.
+ */
+export function addMinutes(time: TimeOfDay, minutes: number): TimeOfDay {
+  const total = (((time.hour * 60 + time.minute + minutes) % 1440) + 1440) % 1440;
+  return { hour: Math.floor(total / 60), minute: total % 60 };
+}
+
+/**
+ * A span of minutes said the way a person says it: "45 mins", "1 hr 15 mins",
+ * "2 hrs". Never "75 mins", which is a number the reader has to convert.
+ */
+export function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const hourPart = `${hours} ${hours === 1 ? 'hr' : 'hrs'}`;
+  const minutePart = `${rest} ${rest === 1 ? 'min' : 'mins'}`;
+
+  if (hours === 0) {
+    return minutePart;
+  }
+  return rest === 0 ? hourPart : `${hourPart} ${minutePart}`;
+}
+
+
+/** "1st", "2nd", "3rd", "4th" - how a dose is named in a question. */
+export function ordinal(value: number): string {
+  const tens = value % 100;
+  if (tens >= 11 && tens <= 13) {
+    return `${value}th`;
+  }
+  switch (value % 10) {
+    case 1:
+      return `${value}st`;
+    case 2:
+      return `${value}nd`;
+    case 3:
+      return `${value}rd`;
+    default:
+      return `${value}th`;
+  }
+}

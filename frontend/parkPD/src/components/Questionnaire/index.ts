@@ -9,4 +9,5 @@ export {
   questionStyles,
 } from './Questionnaire';
 export type { Answer } from './Questionnaire';
+export { Duration, totalMinutes } from './Duration';
 export { Scale } from './Scale';
