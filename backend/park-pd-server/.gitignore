@@ -4,7 +4,9 @@
 /build
 
 # Logs
-logs
+# Anchored: a bare "logs" also matches src/logs/, which kept the whole logs
+# module out of version control.
+/logs
 *.log
 npm-debug.log*
 pnpm-debug.log*

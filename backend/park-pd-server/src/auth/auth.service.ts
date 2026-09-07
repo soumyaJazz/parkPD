@@ -22,6 +22,7 @@ import { SmsService } from '../sms/sms.service';
 import { ApiPayload } from '../common/api-response';
 import { JwtService } from '@nestjs/jwt';
 import { RefreshTokenService } from './refresh-token.service';
+import { isUniqueViolation } from '../common/database.module';
 
 /**
  * Where the user asked for the code to go, and so what the account will be
@@ -125,15 +126,15 @@ export class AuthService {
    * that signs in by email is a way of reaching that person, not a way of
    * becoming them - so a code is never sent to it.
    */
-  private assertFlowAllowed(
+  private async assertFlowAllowed(
     contact: string,
     purpose: OtpPurpose,
     method: AuthMethod,
-  ): void {
+  ): Promise<void> {
     const label = DESTINATION_LABEL[method];
     // The account that signs in here, and whoever holds this detail at all.
-    const signsIn = this.usersService.findByPrimary(contact, method);
-    const holder = this.usersService.findByContact(contact, method);
+    const signsIn = await this.usersService.findByPrimary(contact, method);
+    const holder = await this.usersService.findByContact(contact, method);
 
     if (purpose === 'login') {
       if (signsIn) {
@@ -208,9 +209,13 @@ export class AuthService {
   ): Promise<ApiPayload<OtpChallenge>> {
     const contact = this.normalizeContact(rawContact, method);
 
-    this.assertFlowAllowed(contact, purpose, method);
+    await this.assertFlowAllowed(contact, purpose, method);
 
-    const result = this.otpService.generateAndStore(contact, purpose, method);
+    const result = await this.otpService.generateAndStore(
+      contact,
+      purpose,
+      method,
+    );
     if (result.status === 'cooldown') {
       throw new HttpException(
         `Please wait ${result.retryAfterSeconds}s before requesting another code.`,
@@ -254,7 +259,7 @@ export class AuthService {
     otp: string,
     purpose: OtpPurpose,
   ): Promise<ApiPayload<{ user: User; isNewUser: boolean }>> {
-    const result = this.otpService.verify(challengeId, otp, purpose);
+    const result = await this.otpService.verify(challengeId, otp, purpose);
 
     switch (result.status) {
       case 'not-found':
@@ -286,12 +291,11 @@ export class AuthService {
 
     // re-checked here, not just at request time: minutes pass between the
     // two calls, and the account could have been created (or deleted) in
-    // between. No await between the lookup and create, so within one request
-    // this stays atomic and can't double-create.
+    // between.
     //
     // By the primary, matching the request step: a code that reached someone's
     // spare detail must not sign them in, and one was never sent there.
-    const existing = this.usersService.findByPrimary(
+    const existing = await this.usersService.findByPrimary(
       result.contact,
       result.method,
     );
@@ -317,7 +321,23 @@ export class AuthService {
     // Stamped from the challenge, not from this request: it is the record of
     // which detail a code was actually delivered to, which is the whole of
     // what makes it the one the account cannot later be moved off.
-    const user = this.usersService.create(result.contact, result.method);
+    //
+    // The lookup above and this write are two round trips, so two verifications
+    // of the same challenge arriving together can both find nothing. The unique
+    // index on the contact is what settles it - one insert wins, and the other
+    // is turned back into the sentence the check above would have given.
+    let user: User;
+    try {
+      user = await this.usersService.create(result.contact, result.method);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictException(
+          `An account with this ${DESTINATION_LABEL[result.method]} already exists. Please log in.`,
+        );
+      }
+      throw err;
+    }
+
     return {
       message: 'Your account has been created successfully.',
       data: await this.startSession(user, true),
@@ -346,7 +366,7 @@ export class AuthService {
     isNewUser: boolean,
   ): Promise<AuthSession> {
     const access = await this.signAccessToken(user);
-    const refresh = this.refreshTokenService.issue(user.id);
+    const refresh = await this.refreshTokenService.issue(user.id);
 
     return {
       user,
@@ -363,7 +383,7 @@ export class AuthService {
    * a token only ever works once.
    */
   async refreshSession(refreshToken: string): Promise<ApiPayload<AuthSession>> {
-    const result = this.refreshTokenService.consume(refreshToken);
+    const result = await this.refreshTokenService.consume(refreshToken);
 
     if (result.status !== 'ok') {
       throw new UnauthorizedException({
@@ -374,7 +394,7 @@ export class AuthService {
 
     // the row outlived the account it belonged to - possible whenever a user
     // is deleted, since nothing goes back and sweeps their tokens
-    const user = this.usersService.findById(result.userId);
+    const user = await this.usersService.findById(result.userId);
     if (!user) {
       throw new UnauthorizedException({
         message: 'Your session has ended. Please sign in again.',
@@ -393,8 +413,8 @@ export class AuthService {
    * outcome for the person is the same either way, and saying which would let
    * anyone test tokens against this endpoint for free.
    */
-  logout(refreshToken: string): ApiPayload<null> {
-    this.refreshTokenService.revoke(refreshToken);
+  async logout(refreshToken: string): Promise<ApiPayload<null>> {
+    await this.refreshTokenService.revoke(refreshToken);
     return { message: 'You have been signed out.' };
   }
 }

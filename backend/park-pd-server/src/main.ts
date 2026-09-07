@@ -7,8 +7,6 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 async function bootstrap() {
   // the most likely way to ship a catastrophic auth hole is forgetting a dev
   // flag - refuse to boot instead
-  // the most likely way to ship a catastrophic auth hole is forgetting a dev
-  // flag - refuse to boot instead
   if (process.env.NODE_ENV === 'production' && process.env.OTP_DEV_CODE) {
     throw new Error('OTP_DEV_CODE must not be set in production');
   }
@@ -48,6 +46,12 @@ async function bootstrap() {
     origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000',
     credentials: true, // needed later when JWT moves to httpOnly cookies
   });
+
+  // Without this, SIGTERM kills the process before onModuleDestroy runs and
+  // the database pool's connections are left open until Postgres times them
+  // out - which on a platform that redeploys by replacing the container means
+  // a pile of dead connections against a server that caps how many it holds.
+  app.enableShutdownHooks();
 
   await app.listen(process.env.PORT ?? 8000);
 }

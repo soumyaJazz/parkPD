@@ -60,9 +60,9 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     // a valid signature only proves the token wasn't edited. It does not prove
-    // the account still exists - users.json can lose a row, and without this
-    // check a deleted user keeps full access until their token expires.
-    const user = this.usersService.findById(payload.sub);
+    // the account still exists - a row can be deleted, and without this check a
+    // deleted user keeps full access until their token expires.
+    const user = await this.usersService.findById(payload.sub);
     if (!user || primaryContact(user) !== payload.contact) {
       throw new UnauthorizedException({
         message: REJECTED,

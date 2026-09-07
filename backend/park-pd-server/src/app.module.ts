@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
+import { DatabaseModule } from './common/database.module';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -12,6 +13,9 @@ import { LogsModule } from './logs/logs.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Global, so every service that stores something can inject the one pool
+    // without each module in the tree importing this.
+    DatabaseModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
     AuthModule,
     // the global guard below injects UsersService; AuthModule re-exports

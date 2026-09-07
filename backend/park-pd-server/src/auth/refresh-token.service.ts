@@ -1,16 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { dataFile } from '../common/data-store';
-
-interface RefreshTokenRecord {
-  /** HMAC of the token. The token itself is never written to disk. */
-  tokenHash: string;
-  userId: string;
-  expiresAt: number;
-  createdAt: number;
-}
+import { Pool } from 'pg';
+import { PG_POOL, withTransaction } from '../common/database.module';
 
 export type ConsumeResult =
   | { status: 'ok'; userId: string }
@@ -22,44 +14,17 @@ const MAX_PER_USER = 10;
 
 @Injectable()
 export class RefreshTokenService {
-  private readonly logger = new Logger(RefreshTokenService.name);
-
-  private readonly filePath = dataFile('refresh-tokens.json');
-
-  constructor(private configService: ConfigService) {
-    if (!fs.existsSync(this.filePath)) {
-      fs.writeFileSync(this.filePath, JSON.stringify([]));
-    }
-  }
-
-  private readAll(): RefreshTokenRecord[] {
-    try {
-      return JSON.parse(
-        fs.readFileSync(this.filePath, 'utf-8'),
-      ) as RefreshTokenRecord[];
-    } catch {
-      // a truncated or hand-edited file would otherwise crash every refresh
-      this.logger.warn('refresh-tokens.json was unreadable, starting empty');
-      return [];
-    }
-  }
-
-  private writeAll(records: RefreshTokenRecord[]): void {
-    fs.writeFileSync(this.filePath, JSON.stringify(records, null, 2));
-  }
-
-  /** Drops expired rows on every read, so the file stays self-cleaning. */
-  private readLive(): RefreshTokenRecord[] {
-    const now = Date.now();
-    return this.readAll().filter((r) => r.expiresAt > now);
-  }
+  constructor(
+    private configService: ConfigService,
+    @Inject(PG_POOL) private readonly pool: Pool,
+  ) {}
 
   /**
-   * Keyed hash, so the file alone is useless: someone who copies it still can't
-   * turn a stored hash back into a working token without the secret.
+   * Keyed hash, so the table alone is useless: someone who copies it still
+   * can't turn a stored hash back into a working token without the secret.
    *
    * Deterministic on purpose. Unlike a per-row salted hash, this one can be
-   * looked up directly, which is what lets consume() find a record in one pass.
+   * looked up directly, which is what lets consume() find a row in one pass.
    */
   private hash(token: string): string {
     const secret = this.configService.get<string>(
@@ -76,31 +41,40 @@ export class RefreshTokenService {
     return days * 24 * 60 * 60 * 1000;
   }
 
-  issue(userId: string): { token: string; expiresAt: number } {
+  async issue(userId: string): Promise<{ token: string; expiresAt: number }> {
     // 256 bits from the CSPRNG. This is an opaque handle, not a JWT - it
     // carries no claims, so it tells a thief nothing, and it is worthless the
     // moment its row is gone.
     const token = crypto.randomBytes(32).toString('hex');
-    const createdAt = Date.now();
-    const expiresAt = createdAt + this.ttlMs();
+    const expiresAt = Date.now() + this.ttlMs();
 
-    const record: RefreshTokenRecord = {
-      tokenHash: this.hash(token),
-      userId,
-      expiresAt,
-      createdAt,
-    };
+    await withTransaction(this.pool, async (client) => {
+      // Expired rows have no further use and nothing else sweeps them.
+      await client.query(
+        'DELETE FROM refresh_tokens WHERE expires_at <= now()',
+      );
 
-    // one row per signed-in device, newest kept. Without a cap every sign-in
-    // leaves a row behind forever and the file only grows.
-    const live = this.readLive();
-    const mine = live
-      .filter((r) => r.userId === userId)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, MAX_PER_USER - 1);
-    const others = live.filter((r) => r.userId !== userId);
+      // One row per signed-in device, newest kept. Without a cap every sign-in
+      // leaves a row behind until it expires and the table only grows. The
+      // trim leaves room for the one about to be inserted.
+      await client.query(
+        `DELETE FROM refresh_tokens
+          WHERE token_hash IN (
+            SELECT token_hash FROM refresh_tokens
+             WHERE user_id = $1
+             ORDER BY created_at DESC
+            OFFSET $2
+          )`,
+        [userId, MAX_PER_USER - 1],
+      );
 
-    this.writeAll([...others, ...mine, record]);
+      await client.query(
+        `INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+         VALUES ($1, $2, to_timestamp($3 / 1000.0))`,
+        [this.hash(token), userId, expiresAt],
+      );
+    });
+
     return { token, expiresAt };
   }
 
@@ -111,36 +85,47 @@ export class RefreshTokenService {
    * Rotation is what limits a leak. A token that has been used once is dead, so
    * a copy taken from a log or a backup stops working the moment the real
    * device refreshes.
+   *
+   * The find and the delete are one statement, which is what makes that true
+   * under concurrency: two requests arriving with the same token cannot both
+   * match it, because only one of them gets a row back.
    */
-  consume(token: string): ConsumeResult {
-    const records = this.readAll();
-    const tokenHash = this.hash(token);
-    const record = records.find((r) => r.tokenHash === tokenHash);
-
-    // a plain === is fine here, unlike the OTP compare. What's matched is a
+  async consume(token: string): Promise<ConsumeResult> {
+    // A plain match is fine here, unlike the OTP compare. What's matched is a
     // 256-bit hash of the caller's own input, not a short secret worth learning
     // a byte at a time - and knowing a stored hash still produces no token.
+    const { rows } = await this.pool.query<{
+      user_id: string;
+      expires_at: Date;
+    }>(
+      `DELETE FROM refresh_tokens
+        WHERE token_hash = $1
+    RETURNING user_id, expires_at`,
+      [this.hash(token)],
+    );
+
+    const record = rows[0];
     if (!record) {
       return { status: 'not-found' };
     }
-
-    // deleted either way: an expired row has no further use
-    this.writeAll(records.filter((r) => r.tokenHash !== tokenHash));
-
-    if (Date.now() > record.expiresAt) {
+    // Deleted either way by the statement above: an expired row has no use.
+    if (record.expires_at.getTime() < Date.now()) {
       return { status: 'expired' };
     }
-    return { status: 'ok', userId: record.userId };
+    return { status: 'ok', userId: record.user_id };
   }
 
   /** Logout: drops this device's token, leaving other devices signed in. */
-  revoke(token: string): void {
-    const tokenHash = this.hash(token);
-    this.writeAll(this.readAll().filter((r) => r.tokenHash !== tokenHash));
+  async revoke(token: string): Promise<void> {
+    await this.pool.query('DELETE FROM refresh_tokens WHERE token_hash = $1', [
+      this.hash(token),
+    ]);
   }
 
   /** Sign out everywhere - every device this account is signed in on. */
-  revokeAllForUser(userId: string): void {
-    this.writeAll(this.readAll().filter((r) => r.userId !== userId));
+  async revokeAllForUser(userId: string): Promise<void> {
+    await this.pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [
+      userId,
+    ]);
   }
 }

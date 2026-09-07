@@ -1,7 +1,6 @@
-import { Injectable } from '@nestjs/common';
-import * as fs from 'fs';
-import * as crypto from 'crypto';
-import { dataFile } from '../common/data-store';
+import { Inject, Injectable } from '@nestjs/common';
+import { Pool } from 'pg';
+import { PG_POOL, Queryable } from '../common/database.module';
 
 /**
  * Which detail a code was sent to, and so which one proved the account.
@@ -47,9 +46,9 @@ export interface User {
     verified_with?: AuthMethod;
     // Everything below is filled in by profile setup, which runs once straight
     // after sign-up - so an account exists without them for the minute in
-    // between, and older rows in the file never had them at all. The spare
-    // contact detail is asked for in the same sitting, and is declared with
-    // its pair above rather than here.
+    // between, and older rows never had them at all. The spare contact detail
+    // is asked for in the same sitting, and is declared with its pair above
+    // rather than here.
     full_name?: string;
     gender?: Gender;
     /** DD/MM/YYYY - the single field the profile form sends. */
@@ -136,6 +135,12 @@ export function primaryContact(user: User): string {
  * The cost is that two numbers in different countries sharing their last ten
  * digits would read as one account. That is the trade this makes, and the
  * place to revisit if parkPD is ever used outside one dialling code.
+ *
+ * The same rule is spelled a second time in the schema, as the generated
+ * `phone_national` column that carries the unique index. It has to be: only the
+ * database can refuse two rows at once, and only this can answer without a
+ * round trip. They are checked against each other by `findByPhone`, which
+ * computes the value here and looks it up there.
  */
 const NATIONAL_DIGITS = 10;
 
@@ -157,50 +162,161 @@ export function sameNumber(a: string, b: string): boolean {
     return phoneIdentity(a) === phoneIdentity(b);
 }
 
+/**
+ * What every read selects.
+ *
+ * `dob` is shaped by Postgres rather than in TypeScript: a `date` comes back
+ * from the driver as a JS Date at local midnight, and formatting that in a zone
+ * behind UTC hands back the day before. `to_char` has no timezone to get wrong.
+ *
+ * The timestamps are left as Dates and turned into ISO strings below, which is
+ * the one format the client has ever been sent.
+ */
+const USER_COLUMNS = `
+  id, created_at, email, phone, verified_with,
+  full_name, gender, to_char(dob, 'DD/MM/YYYY') AS dob,
+  p_duration, first_symptom, first_affected_part,
+  recc_falls, recc_falls_type, psychiatric, addiction, rem, non_motor_symptoms,
+  diabetes_yrs, hypertension_yrs, thyroid_yrs,
+  family_p_history, walk_independent, assistance_needed, dose_mode,
+  profile_completed_at, profile_updated_at`;
+
+/**
+ * The columns `update` will write, and the only strings it will ever put into
+ * a statement. A patch key that is not here is dropped rather than interpolated
+ * - column names cannot be parameterised, so this list is what stands between a
+ * caller-supplied key and the SQL.
+ */
+const WRITABLE_COLUMNS = new Set([
+    'email',
+    'phone',
+    'full_name',
+    'gender',
+    'dob',
+    'p_duration',
+    'first_symptom',
+    'first_affected_part',
+    'recc_falls',
+    'recc_falls_type',
+    'psychiatric',
+    'addiction',
+    'rem',
+    'non_motor_symptoms',
+    'diabetes_yrs',
+    'hypertension_yrs',
+    'thyroid_yrs',
+    'family_p_history',
+    'walk_independent',
+    'assistance_needed',
+    'dose_mode',
+    'profile_completed_at',
+    'profile_updated_at',
+]);
+
+/**
+ * The six answers whose null is itself an answer - "no history", as opposed to
+ * "never asked". They are written once, together, by profile setup, so they are
+ * read back as explicit nulls only on a profile that has actually been saved.
+ */
+const NULL_IS_AN_ANSWER = [
+    'recc_falls',
+    'recc_falls_type',
+    'addiction',
+    'diabetes_yrs',
+    'hypertension_yrs',
+    'thyroid_yrs',
+] as const;
+
+/** A row as Postgres hands it back, before the shaping below. */
+type UserRow = Record<string, unknown> & {
+    id: string;
+    created_at: Date;
+    profile_completed_at: Date | null;
+    profile_updated_at: Date | null;
+};
+
+/**
+ * A row in the shape the API has always returned.
+ *
+ * Postgres has one word for an unanswered question and the client has two: a
+ * null column is a key that simply is not there, which is what a caller reading
+ * `user.full_name` has always seen on an account that has not finished setup.
+ * The six above are the exception, and only once there is a profile for them to
+ * be part of.
+ */
+function rowToUser(row: UserRow): User {
+    const user: Record<string, unknown> = {};
+    const hasProfile = row.profile_completed_at !== null;
+
+    for (const [column, value] of Object.entries(row)) {
+        if (value instanceof Date) {
+            user[column] = value.toISOString();
+            continue;
+        }
+        if (value !== null) {
+            user[column] = value;
+            continue;
+        }
+        if (hasProfile && NULL_IS_AN_ANSWER.includes(column as never)) {
+            user[column] = null;
+        }
+    }
+
+    return user as unknown as User;
+}
+
+/**
+ * Postgres rejects a malformed uuid with an error rather than an empty result,
+ * so a lookup by an id that could never exist is answered here instead of
+ * becoming a 500. Every id we mint is one of these.
+ */
+const UUID =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class UsersService {
+    constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-    private readonly filePath = dataFile('users.json');
-
-    constructor() {
-        if (!fs.existsSync(this.filePath)) {
-            fs.writeFileSync(this.filePath, JSON.stringify([]));
+    async findById(id: string): Promise<User | undefined> {
+        if (!UUID.test(id)) {
+            return undefined;
         }
+        const { rows } = await this.pool.query<UserRow>(
+            `SELECT ${USER_COLUMNS} FROM users WHERE id = $1`,
+            [id],
+        );
+        return rows[0] && rowToUser(rows[0]);
     }
 
-    private readAll(): User[] {
-        try {
-            return JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as User[];
-        } catch {
-            return [];
-        }
-    }
-
-    private writeAll(users: User[]): void {
-        fs.writeFileSync(this.filePath, JSON.stringify(users, null, 2));
-    }
-
-    findById(id: string): User | undefined {
-        return this.readAll().find((u) => u.id === id);
-    }
-
-    findByEmail(email: string): User | undefined {
+    async findByEmail(email: string): Promise<User | undefined> {
         // Foo@x.com and foo@x.com are the same mailbox; without normalising
         // you get two accounts for one person
         const wanted = email.trim().toLowerCase();
-        return this.readAll().find((u) => u.email === wanted);
+        const { rows } = await this.pool.query<UserRow>(
+            `SELECT ${USER_COLUMNS} FROM users WHERE email = $1`,
+            [wanted],
+        );
+        return rows[0] && rowToUser(rows[0]);
     }
 
-    findByPhone(phone: string): User | undefined {
+    async findByPhone(phone: string): Promise<User | undefined> {
         // The same number typed with a space, a dash or a country code is one
-        // number, and two accounts for it is one too many
-        return this.readAll().find(
-            (u) => u.phone !== undefined && sameNumber(u.phone, phone),
+        // number, and two accounts for it is one too many. `phone_national` is
+        // the column that holds exactly what `phoneIdentity` computes, so the
+        // match is an index lookup rather than a scan comparing every row.
+        const { rows } = await this.pool.query<UserRow>(
+            `SELECT ${USER_COLUMNS} FROM users
+              WHERE phone IS NOT NULL AND phone_national = $1`,
+            [phoneIdentity(phone)],
         );
+        return rows[0] && rowToUser(rows[0]);
     }
 
     /** Whoever holds this detail, in either slot. Used to refuse duplicates. */
-    findByContact(contact: string, method: AuthMethod): User | undefined {
+    async findByContact(
+        contact: string,
+        method: AuthMethod,
+    ): Promise<User | undefined> {
         return method === 'phone'
             ? this.findByPhone(contact)
             : this.findByEmail(contact);
@@ -214,29 +330,57 @@ export class UsersService {
      * person, not a way of becoming them. Sign-in only ever matches the detail
      * that was actually verified.
      */
-    findByPrimary(contact: string, method: AuthMethod): User | undefined {
-        const holder = this.findByContact(contact, method);
+    async findByPrimary(
+        contact: string,
+        method: AuthMethod,
+    ): Promise<User | undefined> {
+        const holder = await this.findByContact(contact, method);
         return holder && verifiedWith(holder) === method ? holder : undefined;
     }
 
     /**
-     * Applies a patch to one user and writes the file back, or undefined when
-     * there is no such user. The read and the write are one synchronous run, so
-     * nothing can interleave between them and lose the other's change.
+     * Applies a patch to one user, or undefined when there is no such user.
+     *
+     * A key set to undefined clears the column, which is how the profile screen
+     * removes a spare contact detail: the caller writes the key and leaves the
+     * value out, exactly as it did when this wrote a JSON file and
+     * `JSON.stringify` dropped it. A key that is simply not in the patch is not
+     * touched.
      */
-    update(
+    async update(
         id: string,
-        patch: Partial<Omit<User, 'id' | 'createdAt'>>,
-    ): User | undefined {
-        const users = this.readAll();
-        const index = users.findIndex((u) => u.id === id);
-        if (index === -1) {
+        patch: Partial<Omit<User, 'id' | 'created_at'>>,
+        db: Queryable = this.pool,
+    ): Promise<User | undefined> {
+        if (!UUID.test(id)) {
             return undefined;
         }
 
-        users[index] = { ...users[index], ...patch };
-        this.writeAll(users);
-        return users[index];
+        const columns = Object.keys(patch).filter((key) =>
+            WRITABLE_COLUMNS.has(key),
+        );
+        if (columns.length === 0) {
+            return this.findById(id);
+        }
+
+        const values: unknown[] = [id];
+        const assignments = columns.map((column) => {
+            values.push((patch as Record<string, unknown>)[column] ?? null);
+            const placeholder = `$${values.length}`;
+            // The one column the client's spelling is not the column's: the
+            // form sends DD/MM/YYYY and the column is a real date.
+            return column === 'dob'
+                ? `dob = to_date(${placeholder}, 'DD/MM/YYYY')`
+                : `${column} = ${placeholder}`;
+        });
+
+        const { rows } = await db.query<UserRow>(
+            `UPDATE users SET ${assignments.join(', ')}
+              WHERE id = $1
+          RETURNING ${USER_COLUMNS}`,
+            values,
+        );
+        return rows[0] && rowToUser(rows[0]);
     }
 
     /**
@@ -245,18 +389,20 @@ export class UsersService {
      * known, and a default would quietly write the wrong answer the day a
      * second way of signing up exists.
      */
-    create(contact: string, verifiedWith: AuthMethod): User {
-        const user: User = {
-            id: crypto.randomUUID(),
-            created_at: new Date().toISOString(),
-            verified_with: verifiedWith,
-            // Into the slot the method names, and only that one. The other is
-            // offered during setup, and is the user's to change afterwards.
-            ...(verifiedWith === 'phone'
-                ? { phone: contact }
-                : { email: contact.toLowerCase() }),
-        };
-        this.writeAll([...this.readAll(), user]);
-        return user;
+    async create(contact: string, verifiedWith: AuthMethod): Promise<User> {
+        // Into the slot the method names, and only that one. The other is
+        // offered during setup, and is the user's to change afterwards.
+        const isPhone = verifiedWith === 'phone';
+        const { rows } = await this.pool.query<UserRow>(
+            `INSERT INTO users (verified_with, email, phone)
+             VALUES ($1, $2, $3)
+          RETURNING ${USER_COLUMNS}`,
+            [
+                verifiedWith,
+                isPhone ? null : contact.toLowerCase(),
+                isPhone ? contact : null,
+            ],
+        );
+        return rowToUser(rows[0]);
     }
 }

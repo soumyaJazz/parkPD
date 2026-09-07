@@ -83,11 +83,11 @@ export class ProfileService {
    * different place: the controller reads it off the verified token, so it is
    * the one value here the caller cannot choose.
    */
-  completeProfile(
+  async completeProfile(
     userId: string,
     dto: CompleteProfileDto,
-  ): ApiPayload<{ user: User }> {
-    const user = this.requireUser(userId);
+  ): Promise<ApiPayload<{ user: User }>> {
+    const user = await this.requireUser(userId);
 
     // Setup runs once. A second save can only be a stale screen or a retry
     // after the first one landed, and either way it must not overwrite a
@@ -102,15 +102,15 @@ export class ProfileService {
     };
 
     if (dto.email !== undefined) {
-      patch.email = this.acceptEmail(user, dto.email);
+      patch.email = await this.acceptEmail(user, dto.email);
     }
     if (dto.phone !== undefined) {
-      patch.phone = this.acceptPhone(user, dto.phone);
+      patch.phone = await this.acceptPhone(user, dto.phone);
     }
 
     return {
       message: 'Your profile is all set.',
-      data: { user: this.write(user.id, patch) },
+      data: { user: await this.write(user.id, patch) },
     };
   }
 
@@ -129,11 +129,11 @@ export class ProfileService {
    *
    * Which is which comes off the row, never off the request.
    */
-  updateProfile(
+  async updateProfile(
     userId: string,
     dto: UpdateProfileDto,
-  ): ApiPayload<{ user: User }> {
-    const user = this.requireUser(userId);
+  ): Promise<ApiPayload<{ user: User }>> {
+    const user = await this.requireUser(userId);
 
     // Nothing to edit yet. Reaching this without finishing setup means a
     // client got ahead of itself, and letting it through would write a profile
@@ -151,25 +151,26 @@ export class ProfileService {
 
     const verified = verifiedWith(user);
 
-    // Undefined is what removes a key when the row is written back out:
-    // JSON.stringify drops it, so the account reads as having no number rather
-    // than as having an empty one.
+    // Undefined is what removes the detail: `UsersService.update` writes a key
+    // that is present but undefined as a null column, so the account reads as
+    // having no number rather than as having an empty one. A key left out of
+    // the patch entirely is a column it does not touch.
     if (dto.email !== undefined) {
-      patch.email = this.acceptEditedEmail(user, verified, dto.email);
+      patch.email = await this.acceptEditedEmail(user, verified, dto.email);
     }
     if (dto.phone !== undefined) {
-      patch.phone = this.acceptEditedPhone(user, verified, dto.phone);
+      patch.phone = await this.acceptEditedPhone(user, verified, dto.phone);
     }
 
     return {
       message: 'Your profile has been updated.',
-      data: { user: this.write(user.id, patch) },
+      data: { user: await this.write(user.id, patch) },
     };
   }
 
   /** The account behind a verified token, or the one thing left to say. */
-  private requireUser(userId: string): User {
-    const user = this.usersService.findById(userId);
+  private async requireUser(userId: string): Promise<User> {
+    const user = await this.usersService.findById(userId);
     if (!user) {
       // the token verified against an account that has since gone
       throw new NotFoundException(NO_ACCOUNT);
@@ -178,8 +179,8 @@ export class ProfileService {
   }
 
   /** Applies a patch, treating a row that vanished mid-request as gone. */
-  private write(userId: string, patch: Partial<User>): User {
-    const updated = this.usersService.update(userId, patch);
+  private async write(userId: string, patch: Partial<User>): Promise<User> {
+    const updated = await this.usersService.update(userId, patch);
     if (!updated) {
       throw new NotFoundException(NO_ACCOUNT);
     }
@@ -283,7 +284,7 @@ export class ProfileService {
     });
   }
 
-  private acceptEmail(user: User, incoming: string): string {
+  private async acceptEmail(user: User, incoming: string): Promise<string> {
     const email = incoming.trim().toLowerCase();
 
     if (user.email && user.email !== email) {
@@ -292,7 +293,7 @@ export class ProfileService {
       );
     }
 
-    const owner = this.usersService.findByEmail(email);
+    const owner = await this.usersService.findByEmail(email);
     if (owner && owner.id !== user.id) {
       throw new ConflictException(
         'That email address is already on another account.',
@@ -301,8 +302,8 @@ export class ProfileService {
     return email;
   }
 
-  private acceptPhone(user: User, incoming: string): string {
-    const phone = this.checkedPhone(user, incoming);
+  private async acceptPhone(user: User, incoming: string): Promise<string> {
+    const phone = await this.checkedPhone(user, incoming);
 
     if (user.phone && !sameNumber(user.phone, phone)) {
       throw new BadRequestException(
@@ -320,11 +321,11 @@ export class ProfileService {
    * unchanged value is waved through rather than refused, so a screen that
    * echoes back what it was shown is not treated as an attempt to move it.
    */
-  private acceptEditedEmail(
+  private async acceptEditedEmail(
     user: User,
     verified: AuthMethod,
     incoming: string | null,
-  ): string | undefined {
+  ): Promise<string | undefined> {
     if (verified === 'email') {
       if (incoming === null || incoming.trim().toLowerCase() !== user.email) {
         throw new BadRequestException(
@@ -339,7 +340,7 @@ export class ProfileService {
     }
 
     const email = incoming.trim().toLowerCase();
-    const owner = this.usersService.findByEmail(email);
+    const owner = await this.usersService.findByEmail(email);
     if (owner && owner.id !== user.id) {
       throw new ConflictException(
         'That email address is already on another account.',
@@ -349,11 +350,11 @@ export class ProfileService {
   }
 
   /** The number, under the same rule from the other side. */
-  private acceptEditedPhone(
+  private async acceptEditedPhone(
     user: User,
     verified: AuthMethod,
     incoming: string | null,
-  ): string | undefined {
+  ): Promise<string | undefined> {
     if (verified === 'phone') {
       if (
         incoming === null ||
@@ -371,7 +372,7 @@ export class ProfileService {
   }
 
   /** Normalised, long enough to be a number, and nobody else's. */
-  private checkedPhone(user: User, incoming: string): string {
+  private async checkedPhone(user: User, incoming: string): Promise<string> {
     const phone = normalizePhone(incoming);
     const digits = phone.replace(/\D/g, '').length;
 
@@ -379,7 +380,7 @@ export class ProfileService {
       throw new BadRequestException('Enter a valid phone number.');
     }
 
-    const owner = this.usersService.findByPhone(phone);
+    const owner = await this.usersService.findByPhone(phone);
     if (owner && owner.id !== user.id) {
       throw new ConflictException(
         'That phone number is already on another account.',
