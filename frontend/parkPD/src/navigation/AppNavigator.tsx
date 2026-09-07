@@ -12,6 +12,7 @@ import OtherMedsScreen from '../screens/OtherMeds';
 import ReviewScreen from '../screens/Review';
 import SideEffectsScreen from '../screens/SideEffects';
 import OtpScreen from '../screens/Otp';
+import ProfileScreen from '../screens/Profile';
 import ProfileQuestionsScreen from '../screens/ProfileQuestions';
 import ProfileSetupScreen from '../screens/ProfileSetup';
 import SignUpScreen from '../screens/SignUp';
@@ -68,6 +69,14 @@ export type RootStackParamList = {
     details: ProfileDetails;
   };
   Home: undefined;
+  /**
+   * The profile, reopened from the menu - see `screens/Profile`.
+   *
+   * No params: the account is already held by the auth context, questionnaire
+   * and all, so the screen fills its form in from there rather than being
+   * handed a copy that could be stale by the time it is saved.
+   */
+  Profile: undefined;
   /** The first of the three parts of a day's log - see `screens/MorningCheck`. */
   MorningCheck: {
     /**
@@ -176,6 +185,7 @@ function AppNavigator() {
             // and the log a day opens into.
             <>
               <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="Profile" component={ProfileScreen} />
               <Stack.Screen
                 name="MorningCheck"
                 component={MorningCheckScreen}
@@ -198,10 +208,18 @@ function AppNavigator() {
             // from the server, so abandoning either one, or reinstalling, still
             // lands back here rather than skipping into a half-filled account.
             <>
+              {/* The screen shows whichever detail was verified as locked and
+                  offers the other as an optional field, so what it is handed
+                  is what proved the account - not an assumption that this is
+                  always the email. */}
               <Stack.Screen
                 name="ProfileSetup"
                 component={ProfileSetupScreen}
-                initialParams={{ email: user.email }}
+                initialParams={
+                  user.verified_with === 'phone'
+                    ? { phone: user.phone }
+                    : { email: user.email }
+                }
               />
               <Stack.Screen
                 name="ProfileQuestions"

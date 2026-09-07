@@ -8,13 +8,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 function LoginScreen({ navigation }: Props) {
   const handleSubmit = async (method: AuthMethod, contact: string) => {
-    // see SignUpScreen: the endpoint is email-only for now
-    if (method === 'phone') {
-      throw new Error("Phone login isn't available yet. Use your email address.");
-    }
-
-    // 'login' is what makes the server reject an address with no account,
-    // instead of quietly mailing a code that could never be used.
+    // 'login' is what makes the server reject a detail with no account behind
+    // it, instead of quietly sending a code that could never be used. It is
+    // also what catches the near miss: a detail that is on an account, but not
+    // the one that account signs in with - the server names the right one.
     const { data: challenge, message } = await requestOtp(
       contact,
       'login',

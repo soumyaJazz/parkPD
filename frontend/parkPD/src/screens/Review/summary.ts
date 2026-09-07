@@ -5,10 +5,11 @@ import type { DoseLog, TimeOrNever } from '../../types/doseLog';
 import { NO_EFFECT, NO_RETURN } from '../../types/doseLog';
 import type { Flag } from '../../types/questionnaire';
 import {
+  daysAfterDay,
   formatDuration,
   formatTime12,
   ordinal,
-  parseTime24,
+  toLocalTime,
 } from '../../utils/date';
 
 /**
@@ -23,20 +24,33 @@ const NOT_ASKED = '—';
 export type Row = { label: string; value: string };
 export type Section = { icon: IconName; title: string; rows: Row[] };
 
-/** "7:05 am" from the "HH:MM" the wire carries. */
-function at(value: string): string {
-  return formatTime12(parseTime24(value));
+/**
+ * "7:05 AM" from the UTC instant the wire carries, back on the clock it was
+ * read from.
+ *
+ * A late dose wears off after midnight, and the instant knows that while the
+ * clock face does not - so a reading that landed on the following day says so
+ * in words. Without it the review would show a 2 AM wear-off above a 11 PM
+ * dose and look like a mistake the user had to hunt for.
+ */
+function at(value: string, date: string): string {
+  const shown = formatTime12(toLocalTime(value));
+  return daysAfterDay(date, value) > 0 ? `${shown} (next day)` : shown;
 }
 
 /** A time, or the words that stand in for one when it never happened. */
-function timeOr(value: TimeOrNever | null, never: string): string {
+function timeOr(
+  value: TimeOrNever | null,
+  never: string,
+  date: string,
+): string {
   if (value === null) {
     return NOT_ASKED;
   }
   if (value === NO_EFFECT || value === NO_RETURN) {
     return never;
   }
-  return at(value);
+  return at(value, date);
 }
 
 /** A list of answers, or the word for having chosen none of them. */
@@ -56,7 +70,7 @@ function describeAffected(value: Flag | null): string {
 }
 
 /**
- * The morning question runs the other way: `daily_activities_independence`
+ * The morning question runs the other way: `daily_activities_independence_flag`
  * records the independence, so 1 is the *good* answer. The two look alike and
  * mean opposite things, which is exactly why they have separate readers.
  */
@@ -76,57 +90,57 @@ function describeWakeCount(count: number | null): string {
   return match === undefined ? NOT_ASKED : match.label;
 }
 
-/** One dose, as the rows that describe it. */
-function doseRows(dose: DoseLog): Row[] {
+/** One dose, as the rows that describe it. `date` is the day being logged. */
+function doseRows(dose: DoseLog, date: string): Row[] {
   const rows: Row[] = [
-    { label: 'Taken at', value: at(dose.dose_time) },
-    { label: 'Amount', value: describeAmount(dose.dose_amount) },
+    { label: 'Taken at', value: at(dose.dose_time, date) },
+    { label: 'Amount', value: describeAmount(dose.tablets_count) },
     {
       label: 'First effect at',
-      value: timeOr(dose.first_effect_time, 'Did not take effect'),
+      value: timeOr(dose.first_effect_time, 'Did not take effect', date),
     },
     {
       label: 'Peak effect at',
-      value: timeOr(dose.peak_effect_time, 'Did not take effect'),
+      value: timeOr(dose.peak_effect_time, 'Did not take effect', date),
     },
     {
       label: 'Activity at peak',
       value:
-        dose.peak_activity_level === null
+        dose.pal_pct === null
           ? NOT_ASKED
-          : `${dose.peak_activity_level}%`,
+          : `${dose.pal_pct}%`,
     },
     {
       label: 'Activities at peak affected',
-      value: describeAffected(dose.at_peak_daily_living_affected),
+      value: describeAffected(dose.at_pal_dl_affected_flag),
     },
   ];
 
-  if (dose.dyskinesia === 1) {
-    const parts = list(dose.dyskinesia_body_part);
+  if (dose.dysky_flag === 1) {
+    const parts = list(dose.dysky_body_part);
     const span =
-      dose.dyskinesia_duration === null
+      dose.dysky_duration === null
         ? ''
-        : ` · ${formatDuration(dose.dyskinesia_duration)}`;
+        : ` · ${formatDuration(dose.dysky_duration)}`;
     rows.push({ label: 'Dyskinesia', value: `Yes — ${parts}${span}` });
     rows.push({
       label: 'Dyskinesia affected activities',
-      value: describeAffected(dose.dyskinesia_daily_living_affected),
+      value: describeAffected(dose.dysky_dl_affected_flag),
     });
   } else {
     rows.push({
       label: 'Dyskinesia',
-      value: dose.dyskinesia === null ? NOT_ASKED : 'No',
+      value: dose.dysky_flag === null ? NOT_ASKED : 'No',
     });
   }
 
   rows.push({
     label: 'Symptoms returned',
-    value: timeOr(dose.med_wear_off_time, 'Did not return'),
+    value: timeOr(dose.med_wear_off_time, 'Did not return', date),
   });
   rows.push({
     label: 'Off state affected activities',
-    value: describeAffected(dose.off_period_daily_living_affected),
+    value: describeAffected(dose.off_period_dl_affected_flag),
   });
 
   return rows;
@@ -140,22 +154,22 @@ function doseRows(dose: DoseLog): Row[] {
  * the user about something else.
  */
 export function buildSections(parts: DailyLogParts): Section[] {
-  const { morning, plan, doses, otherMeds, sideEffects, night } = parts;
+  const { date, morning, plan, doses, otherMeds, sideEffects, night } = parts;
 
   const sections: Section[] = [
     {
       icon: 'clock',
       title: 'Morning',
       rows: [
-        { label: 'Wake-up time', value: at(morning.wake_time) },
+        { label: 'Wake-up time', value: at(morning.wake_time, date) },
         { label: 'Symptoms', value: list(morning.morning_symptoms) },
         {
           label: 'Independence',
-          value: `${morning.wakeup_independence}%`,
+          value: `${morning.wakeup_independence_pct}%`,
         },
         {
           label: 'Activities affected',
-          value: describeIndependence(morning.daily_activities_independence),
+          value: describeIndependence(morning.daily_activities_independence_flag),
         },
       ],
     },
@@ -166,8 +180,8 @@ export function buildSections(parts: DailyLogParts): Section[] {
         { label: 'Medicine', value: plan.medicine_name },
         {
           label: 'Times taken',
-          value: `${plan.num_doses} ${
-            plan.num_doses === 1 ? 'time' : 'times'
+          value: `${plan.dose_count} ${
+            plan.dose_count === 1 ? 'time' : 'times'
           } today`,
         },
       ],
@@ -178,7 +192,7 @@ export function buildSections(parts: DailyLogParts): Section[] {
     sections.push({
       icon: 'capsule',
       title: `${ordinal(index + 1)} dose`,
-      rows: doseRows(dose),
+      rows: doseRows(dose, date),
     });
   });
 
@@ -200,14 +214,14 @@ export function buildSections(parts: DailyLogParts): Section[] {
     {
       label: 'Woke up at night',
       value:
-        night.night_wakeup === 1
+        night.night_wakeup_flag === 1
           ? `Yes — ${describeWakeCount(night.night_wakeup_count)}`
           : 'No',
     },
   ];
   // The two below are only ever asked of a broken night, so on an unbroken one
   // there is nothing to show rather than a pair of dashes to explain.
-  if (night.night_wakeup === 1) {
+  if (night.night_wakeup_flag === 1) {
     nightRows.push({
       label: 'Symptoms at night',
       value: list(night.night_symptoms),
@@ -215,9 +229,9 @@ export function buildSections(parts: DailyLogParts): Section[] {
     nightRows.push({
       label: 'Troublesome',
       value:
-        night.night_symptoms_troublesome === null
+        night.night_symptoms_troublesome_flag === null
           ? NOT_ASKED
-          : night.night_symptoms_troublesome === 1
+          : night.night_symptoms_troublesome_flag === 1
           ? 'Yes, quite troublesome'
           : 'No, manageable',
     });

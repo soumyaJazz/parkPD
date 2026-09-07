@@ -10,13 +10,25 @@ import {
 } from '@nestjs/common';
 import { OtpService, OtpPurpose, VerifyResult } from '../otp/otp.service';
 import { MailService } from '../mail/mail.service';
-import { UsersService, User } from '../users/users.service';
+import {
+  UsersService,
+  User,
+  normalizePhone,
+  primaryContact,
+  verifiedWith,
+} from '../users/users.service';
+import type { AuthMethod } from '../users/users.service';
+import { SmsService } from '../sms/sms.service';
 import { ApiPayload } from '../common/api-response';
 import { JwtService } from '@nestjs/jwt';
 import { RefreshTokenService } from './refresh-token.service';
 
-/** Where the user asked for the code to go. */
-export type AuthMethod = 'email' | 'phone';
+/**
+ * Where the user asked for the code to go, and so what the account will be
+ * proved by. Defined on the user row, which is what ends up holding it -
+ * re-exported here because this is where callers have always reached for it.
+ */
+export type { AuthMethod };
 
 /**
  * Why a verification failed, attached to the error under `error.details` so the
@@ -43,7 +55,15 @@ export interface OtpChallenge {
  */
 export interface JwtPayload {
   sub: string;
-  email: string;
+  /**
+   * The detail the account signs in with. Checked against the row by the
+   * guard, so a token cannot outlive the identity it was issued for.
+   *
+   * The primary rather than the email, because the primary is the half that
+   * never changes: binding to a spare email would sign a phone-account user
+   * out every time they corrected their address.
+   */
+  contact: string;
 }
 
 /** A signed-in session: the account, plus both halves of the credential. */
@@ -59,10 +79,27 @@ export interface AuthSession {
   refreshTokenExpiresAt: number;
 }
 
+/** Pragmatic check: a local part, an @, and a domain carrying a dot. */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** E.164 allows at most 15 digits; 10 is the shortest number we accept. */
+const MIN_PHONE_DIGITS = 10;
+const MAX_PHONE_DIGITS = 15;
+
 /** Names the destination the way the user picked it, for the sent-code copy. */
 const DESTINATION_LABEL: Record<AuthMethod, string> = {
   email: 'email address',
   phone: 'mobile number',
+};
+
+/**
+ * The same names where a sentence needs the article. Written out rather than
+ * derived, because "a"/"an" is a property of the word and guessing it from the
+ * first letter is how copy ends up saying "a email address".
+ */
+const A_DESTINATION: Record<AuthMethod, string> = {
+  email: 'an email address',
+  phone: 'a mobile number',
 };
 
 @Injectable()
@@ -72,47 +109,108 @@ export class AuthService {
   constructor(
     private otpService: OtpService,
     private mailService: MailService,
+    private smsService: SmsService,
     private usersService: UsersService,
     private jwtService: JwtService,
     private refreshTokenService: RefreshTokenService,
   ) {}
 
-  // login needs an existing account, signup needs the absence of one.
-  // Checked here at request time so we fail before sending an email, rather
-  // than making the user type a code only to be rejected after.
-  private assertFlowAllowed(email: string, purpose: OtpPurpose): void {
-    const existing = this.usersService.findByEmail(email);
+  /**
+   * Whether this contact may start this flow, said in the terms the user will
+   * read. All five answers are here rather than spread through the two callers
+   * so that "which detail is this account" is decided in one place.
+   *
+   * The distinction that matters: an account is reachable at both its details,
+   * but signs in at only one. A number sitting in the spare slot of an account
+   * that signs in by email is a way of reaching that person, not a way of
+   * becoming them - so a code is never sent to it.
+   */
+  private assertFlowAllowed(
+    contact: string,
+    purpose: OtpPurpose,
+    method: AuthMethod,
+  ): void {
+    const label = DESTINATION_LABEL[method];
+    // The account that signs in here, and whoever holds this detail at all.
+    const signsIn = this.usersService.findByPrimary(contact, method);
+    const holder = this.usersService.findByContact(contact, method);
 
-    if (purpose === 'login' && !existing) {
+    if (purpose === 'login') {
+      if (signsIn) {
+        return;
+      }
+      if (holder) {
+        // Their detail, but not the one they sign in with. Naming the one that
+        // does is the difference between a dead end and a next step.
+        throw new NotFoundException(
+          `That ${label} is on an account that signs in with ${A_DESTINATION[verifiedWith(holder)]}. Please use that instead.`,
+        );
+      }
       throw new NotFoundException(
-        'No account found with this email. Please sign up.',
+        `No account found with this ${label}. Please sign up.`,
       );
     }
-    if (purpose === 'signup' && existing) {
+
+    if (signsIn) {
       throw new ConflictException(
-        'An account with this email already exists. Please log in.',
+        `An account with this ${label} already exists. Please log in.`,
+      );
+    }
+    if (holder) {
+      throw new ConflictException(
+        `That ${label} is already on an account. Please log in with the ${DESTINATION_LABEL[verifiedWith(holder)]} on it.`,
       );
     }
   }
 
+  /**
+   * The contact as it will be stored and matched: an address lowercased, a
+   * number reduced to digits with its country code. Done once, here, so what
+   * the challenge holds and what an account holds cannot be spelled apart.
+   *
+   * Also where it is checked to actually be one of those. That rule depends on
+   * `method`, which is why it is not on the DTO - see the note there.
+   */
+  private normalizeContact(raw: string, method: AuthMethod): string {
+    if (method === 'phone') {
+      const phone = normalizePhone(raw);
+      const digits = phone.replace(/\D/g, '').length;
+      if (digits < MIN_PHONE_DIGITS || digits > MAX_PHONE_DIGITS) {
+        throw new BadRequestException('Enter a valid mobile number.');
+      }
+      return phone;
+    }
+
+    const email = raw.trim().toLowerCase();
+    if (!EMAIL_PATTERN.test(email)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+    return email;
+  }
+
+  /** Sends the code the way the user asked for it. */
+  private async deliver(
+    method: AuthMethod,
+    contact: string,
+    otp: string,
+  ): Promise<void> {
+    if (method === 'phone') {
+      await this.smsService.sendOtp(contact, otp);
+      return;
+    }
+    await this.mailService.sendOtp(contact, otp);
+  }
+
   async requestOtp(
-    rawEmail: string,
+    rawContact: string,
     purpose: OtpPurpose,
     method: AuthMethod = 'email',
   ): Promise<ApiPayload<OtpChallenge>> {
-    // there is no SMS sender behind the phone option yet, so say so rather
-    // than accepting the request and never delivering a code
-    if (method === 'phone') {
-      throw new BadRequestException(
-        "Phone verification isn't available yet. Please use your email address.",
-      );
-    }
+    const contact = this.normalizeContact(rawContact, method);
 
-    const email = rawEmail.trim().toLowerCase();
+    this.assertFlowAllowed(contact, purpose, method);
 
-    this.assertFlowAllowed(email, purpose);
-
-    const result = this.otpService.generateAndStore(email, purpose);
+    const result = this.otpService.generateAndStore(contact, purpose, method);
     if (result.status === 'cooldown') {
       throw new HttpException(
         `Please wait ${result.retryAfterSeconds}s before requesting another code.`,
@@ -121,13 +219,20 @@ export class AuthService {
     }
 
     try {
-      await this.mailService.sendOtp(email, result.otp);
+      await this.deliver(method, contact, result.otp);
     } catch (err) {
-      // if SMTP is down, a raw throw gives the client a 500 with a stack
-      // trace - log the detail server side, return something actionable
-      this.logger.error(`Failed to send OTP to ${email}`, err as Error);
+      // A sender that already said something useful - "we cannot text right
+      // now, use your email" - has said it better than the line below could,
+      // so it is passed through rather than flattened.
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      // if SMTP or the SMS provider is down, a raw throw gives the client a
+      // 500 with a stack trace - log the detail server side, return something
+      // actionable
+      this.logger.error(`Failed to send OTP to ${contact}`, err as Error);
       throw new HttpException(
-        'Could not send the verification email. Try again.',
+        `Could not send the code to your ${DESTINATION_LABEL[method]}. Try again.`,
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
@@ -181,14 +286,20 @@ export class AuthService {
 
     // re-checked here, not just at request time: minutes pass between the
     // two calls, and the account could have been created (or deleted) in
-    // between. No await between findByEmail and create, so within one
-    // request this stays atomic and can't double-create.
-    const existing = this.usersService.findByEmail(result.email);
+    // between. No await between the lookup and create, so within one request
+    // this stays atomic and can't double-create.
+    //
+    // By the primary, matching the request step: a code that reached someone's
+    // spare detail must not sign them in, and one was never sent there.
+    const existing = this.usersService.findByPrimary(
+      result.contact,
+      result.method,
+    );
 
     if (purpose === 'login') {
       if (!existing) {
         throw new NotFoundException(
-          'No account found with this email. Please sign up.',
+          `No account found with this ${DESTINATION_LABEL[result.method]}. Please sign up.`,
         );
       }
       return {
@@ -199,11 +310,14 @@ export class AuthService {
 
     if (existing) {
       throw new ConflictException(
-        'An account with this email already exists. Please log in.',
+        `An account with this ${DESTINATION_LABEL[result.method]} already exists. Please log in.`,
       );
     }
 
-    const user = this.usersService.create(result.email);
+    // Stamped from the challenge, not from this request: it is the record of
+    // which detail a code was actually delivered to, which is the whole of
+    // what makes it the one the account cannot later be moved off.
+    const user = this.usersService.create(result.contact, result.method);
     return {
       message: 'Your account has been created successfully.',
       data: await this.startSession(user, true),
@@ -213,7 +327,7 @@ export class AuthService {
   private async signAccessToken(
     user: User,
   ): Promise<{ token: string; expiresAt: number }> {
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+    const payload: JwtPayload = { sub: user.id, contact: primaryContact(user) };
     const token = await this.jwtService.signAsync(payload);
 
     // read the deadline back out of the token rather than recomputing it from

@@ -151,7 +151,7 @@ function ReviewScreen({ navigation, route }: Props) {
           {isSubmitting ? (
             <ActivityIndicator color={colors.white} />
           ) : (
-            <Text style={globalStyles.buttonText}>Submit today’s log</Text>
+            <Text style={globalStyles.buttonText}>Submit</Text>
           )}
         </TouchableOpacity>
       </ScrollView>

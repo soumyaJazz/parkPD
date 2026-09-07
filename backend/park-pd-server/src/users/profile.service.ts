@@ -6,7 +6,16 @@ import {
 } from '@nestjs/common';
 import { ApiPayload } from '../common/api-response';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
-import { User, UsersService } from './users.service';
+import { ProfileAnswersDto } from './dto/profile-answers.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import {
+  User,
+  UsersService,
+  normalizePhone,
+  sameNumber,
+  verifiedWith,
+} from './users.service';
+import type { AuthMethod } from './users.service';
 
 /** Mirrors the client's bounds, so the two agree on who is old enough. */
 const MIN_AGE = 13;
@@ -17,16 +26,6 @@ const MONTHS_PER_YEAR = 12;
 /** E.164 allows at most 15 digits; 10 is the shortest number we accept. */
 const MIN_PHONE_DIGITS = 10;
 const MAX_PHONE_DIGITS = 15;
-
-/**
- * Reduces a number to the form we store: digits, keeping a leading '+' for the
- * country code. Two spellings of one number normalise to the same string, so
- * neither the duplicate check nor the comparison below turns on formatting.
- */
-function normalizePhone(input: string): string {
-  const digits = input.replace(/\D/g, '');
-  return input.trimStart().startsWith('+') ? `+${digits}` : digits;
-}
 
 const DOB_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
@@ -66,6 +65,9 @@ function ageFromDate(date: Date): number {
   return beforeBirthday ? years - 1 : years;
 }
 
+/** Said the same way wherever the token outlived the account it named. */
+const NO_ACCOUNT = 'We could not find your account. Please sign up again.';
+
 @Injectable()
 export class ProfileService {
   constructor(private usersService: UsersService) {}
@@ -85,13 +87,7 @@ export class ProfileService {
     userId: string,
     dto: CompleteProfileDto,
   ): ApiPayload<{ user: User }> {
-    const user = this.usersService.findById(userId);
-    if (!user) {
-      // the token verified against an account that has since gone
-      throw new NotFoundException(
-        'We could not find your account. Please sign up again.',
-      );
-    }
+    const user = this.requireUser(userId);
 
     // Setup runs once. A second save can only be a stale screen or a retry
     // after the first one landed, and either way it must not overwrite a
@@ -100,6 +96,102 @@ export class ProfileService {
       throw new ConflictException('Your profile has already been set up.');
     }
 
+    const patch: Partial<User> = {
+      ...this.checkedAnswers(dto),
+      profile_completed_at: new Date().toISOString(),
+    };
+
+    if (dto.email !== undefined) {
+      patch.email = this.acceptEmail(user, dto.email);
+    }
+    if (dto.phone !== undefined) {
+      patch.phone = this.acceptPhone(user, dto.phone);
+    }
+
+    return {
+      message: 'Your profile is all set.',
+      data: { user: this.write(user.id, patch) },
+    };
+  }
+
+  /**
+   * Saves the same form, reopened from the profile screen.
+   *
+   * Every answer is rewritten from what arrives, because the screen sends the
+   * whole form back - so this is a replacement rather than a merge, and an
+   * answer the user cleared genuinely clears.
+   *
+   * Both contact details can be sent, and exactly one of them is refused: the
+   * one a code was actually delivered to. That detail is what the account is,
+   * so moving it here would hand the account to a destination nobody has
+   * proved they can read. The other was only ever typed in, so it is the
+   * user's to change or remove.
+   *
+   * Which is which comes off the row, never off the request.
+   */
+  updateProfile(
+    userId: string,
+    dto: UpdateProfileDto,
+  ): ApiPayload<{ user: User }> {
+    const user = this.requireUser(userId);
+
+    // Nothing to edit yet. Reaching this without finishing setup means a
+    // client got ahead of itself, and letting it through would write a profile
+    // that never went through the once-only path above.
+    if (!user.profile_completed_at) {
+      throw new BadRequestException(
+        'Please finish setting up your profile first.',
+      );
+    }
+
+    const patch: Partial<User> = {
+      ...this.checkedAnswers(dto),
+      profile_updated_at: new Date().toISOString(),
+    };
+
+    const verified = verifiedWith(user);
+
+    // Undefined is what removes a key when the row is written back out:
+    // JSON.stringify drops it, so the account reads as having no number rather
+    // than as having an empty one.
+    if (dto.email !== undefined) {
+      patch.email = this.acceptEditedEmail(user, verified, dto.email);
+    }
+    if (dto.phone !== undefined) {
+      patch.phone = this.acceptEditedPhone(user, verified, dto.phone);
+    }
+
+    return {
+      message: 'Your profile has been updated.',
+      data: { user: this.write(user.id, patch) },
+    };
+  }
+
+  /** The account behind a verified token, or the one thing left to say. */
+  private requireUser(userId: string): User {
+    const user = this.usersService.findById(userId);
+    if (!user) {
+      // the token verified against an account that has since gone
+      throw new NotFoundException(NO_ACCOUNT);
+    }
+    return user;
+  }
+
+  /** Applies a patch, treating a row that vanished mid-request as gone. */
+  private write(userId: string, patch: Partial<User>): User {
+    const updated = this.usersService.update(userId, patch);
+    if (!updated) {
+      throw new NotFoundException(NO_ACCOUNT);
+    }
+    return updated;
+  }
+
+  /**
+   * The answers both endpoints take, checked over and put into the shape the
+   * row stores. Everything that can be rejected is rejected before the first
+   * field is written, so a bad request never leaves a half-saved profile.
+   */
+  private checkedAnswers(dto: ProfileAnswersDto): Partial<User> {
     const dob = parseDob(dto.dob);
     if (!dob) {
       throw new BadRequestException('Enter a valid date of birth.');
@@ -117,11 +209,10 @@ export class ProfileService {
 
     this.assertQuestionnaireConsistent(dto, age);
 
-    const patch: Partial<User> = {
+    return {
       full_name: dto.full_name.trim().replace(/\s+/g, ' '),
       gender: dto.gender,
       dob: dto.dob,
-      profile_completed_at: new Date().toISOString(),
 
       // The questionnaire, stored under the wire names it arrived with.
       p_duration: dto.p_duration,
@@ -145,25 +236,6 @@ export class ProfileService {
       assistance_needed: dto.assistance_needed,
       dose_mode: dto.dose_mode,
     };
-
-    if (dto.email !== undefined) {
-      patch.email = this.acceptEmail(user, dto.email);
-    }
-    if (dto.phone !== undefined) {
-      patch.phone = this.acceptPhone(user, dto.phone);
-    }
-
-    const updated = this.usersService.update(user.id, patch);
-    if (!updated) {
-      throw new NotFoundException(
-        'We could not find your account. Please sign up again.',
-      );
-    }
-
-    return {
-      message: 'Your profile is all set.',
-      data: { user: updated },
-    };
   }
 
   /**
@@ -172,12 +244,12 @@ export class ProfileService {
    * have been true for longer than the person has been alive.
    */
   private assertQuestionnaireConsistent(
-    dto: CompleteProfileDto,
+    dto: ProfileAnswersDto,
     age: number,
   ): void {
     if (dto.p_duration > age * MONTHS_PER_YEAR) {
       throw new BadRequestException(
-        'You cannot have had Parkinson\u2019s disease for longer than your age.',
+        'You cannot have had Parkinson’s disease for longer than your age.',
       );
     }
 
@@ -230,17 +302,81 @@ export class ProfileService {
   }
 
   private acceptPhone(user: User, incoming: string): string {
+    const phone = this.checkedPhone(user, incoming);
+
+    if (user.phone && !sameNumber(user.phone, phone)) {
+      throw new BadRequestException(
+        'Your phone number was confirmed at sign-up and cannot be changed here.',
+      );
+    }
+    return phone;
+  }
+
+  /**
+   * The address as the profile screen may change it.
+   *
+   * Locked when it is what verified the account: not merely unchangeable, but
+   * unremovable too - an account cannot be left with no way to sign in. An
+   * unchanged value is waved through rather than refused, so a screen that
+   * echoes back what it was shown is not treated as an attempt to move it.
+   */
+  private acceptEditedEmail(
+    user: User,
+    verified: AuthMethod,
+    incoming: string | null,
+  ): string | undefined {
+    if (verified === 'email') {
+      if (incoming === null || incoming.trim().toLowerCase() !== user.email) {
+        throw new BadRequestException(
+          'Your email address was confirmed at sign-up and cannot be changed here.',
+        );
+      }
+      return user.email;
+    }
+
+    if (incoming === null) {
+      return undefined;
+    }
+
+    const email = incoming.trim().toLowerCase();
+    const owner = this.usersService.findByEmail(email);
+    if (owner && owner.id !== user.id) {
+      throw new ConflictException(
+        'That email address is already on another account.',
+      );
+    }
+    return email;
+  }
+
+  /** The number, under the same rule from the other side. */
+  private acceptEditedPhone(
+    user: User,
+    verified: AuthMethod,
+    incoming: string | null,
+  ): string | undefined {
+    if (verified === 'phone') {
+      if (
+        incoming === null ||
+        user.phone === undefined ||
+        !sameNumber(incoming, user.phone)
+      ) {
+        throw new BadRequestException(
+          'Your phone number was confirmed at sign-up and cannot be changed here.',
+        );
+      }
+      return user.phone;
+    }
+
+    return incoming === null ? undefined : this.checkedPhone(user, incoming);
+  }
+
+  /** Normalised, long enough to be a number, and nobody else's. */
+  private checkedPhone(user: User, incoming: string): string {
     const phone = normalizePhone(incoming);
     const digits = phone.replace(/\D/g, '').length;
 
     if (digits < MIN_PHONE_DIGITS || digits > MAX_PHONE_DIGITS) {
       throw new BadRequestException('Enter a valid phone number.');
-    }
-
-    if (user.phone && normalizePhone(user.phone) !== phone) {
-      throw new BadRequestException(
-        'Your phone number was confirmed at sign-up and cannot be changed here.',
-      );
     }
 
     const owner = this.usersService.findByPhone(phone);

@@ -1,13 +1,10 @@
-import type { ReactNode } from 'react';
 import {
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
-import type { AuthUser } from '../../api';
 import Icon from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
 import { colors } from '../../theme';
@@ -98,6 +95,58 @@ export function StatRow({ stats }: { stats: readonly HomeStat[] }) {
 }
 
 /**
+ * What the calendar has to say for itself while its marks are still coming, or
+ * when they never came.
+ *
+ * Both states are said in words rather than shown as a spinner or a red edge.
+ * A calendar with no marks on it looks exactly like a calendar for someone who
+ * has never logged a day, and the difference between "we are still asking" and
+ * "we could not ask" is the whole of what the reader needs here.
+ *
+ * Nothing is drawn once the days have arrived - the marks are the answer then.
+ */
+export function CalendarNotice({
+  loading,
+  error,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (error !== null) {
+    return (
+      <View style={styles.notice}>
+        <Text style={styles.noticeError}>
+          {error} Your logged days are not shown below.
+        </Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.retryButton,
+            pressed && styles.retryButtonPressed,
+          ]}
+          onPress={onRetry}
+          accessibilityRole="button"
+          accessibilityLabel="Try loading your logged days again"
+        >
+          <Text style={styles.retryText}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.notice}>
+        <Text style={styles.noticeText}>Loading your logged days...</Text>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+/**
  * The strip along the bottom: which day is picked, and the way into logging it.
  *
  * Pinned below the scroll on purpose. It is the one thing this screen is for,
@@ -146,58 +195,6 @@ export function LogFooter({
           </Pressable>
         </View>
       )}
-    </View>
-  );
-}
-
-/**
- * A panel over the screen, drawn in plain views rather than a `Modal`.
- *
- * The sign-out confirmation is a Modal, and it opens as this closes - on iOS,
- * one native modal dismissing while another presents is the case that ends
- * with neither on screen. Keeping this one in the view tree removes the race,
- * and it renders identically on web, where the app also builds.
- */
-function Sheet({
-  title,
-  onClose,
-  bottomInset,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  bottomInset: number;
-  children: ReactNode;
-}) {
-  return (
-    <View style={styles.sheetRoot}>
-      {/* Tapping the dimmed area closes, the way a sheet does. Close below
-          does the same job for anyone who doesn't know that. */}
-      <Pressable
-        style={StyleSheet.absoluteFill}
-        onPress={onClose}
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-      />
-
-      <View
-        style={[styles.sheet, { paddingBottom: bottomInset }]}
-        accessibilityViewIsModal
-      >
-        <Text style={styles.sheetTitle}>{title}</Text>
-        {children}
-        <Pressable
-          style={({ pressed }) => [
-            styles.sheetClose,
-            pressed && styles.sheetClosePressed,
-          ]}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-        >
-          <Text style={styles.sheetCloseText}>Close</Text>
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -379,44 +376,5 @@ export function MenuDrawer({
         importantForAccessibility="no"
       />
     </View>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
-  );
-}
-
-/**
- * The account as it stands, read-only.
- *
- * Editing isn't here yet: these details were taken once during setup, and the
- * screen that changes them is its own piece of work - so the panel says so
- * rather than showing fields that wouldn't save.
- */
-export function ProfileSheet({
-  user,
-  onClose,
-  bottomInset,
-}: {
-  user: AuthUser | null;
-  onClose: () => void;
-  bottomInset: number;
-}) {
-  return (
-    <Sheet title="Your profile" onClose={onClose} bottomInset={bottomInset}>
-      <DetailRow label="Name" value={user?.full_name ?? 'Not given yet'} />
-      <DetailRow label="Email" value={user?.email ?? 'Not given yet'} />
-      {user?.phone ? <DetailRow label="Phone" value={user.phone} /> : null}
-      {user?.dob ? <DetailRow label="Date of birth" value={user.dob} /> : null}
-      <Text style={styles.detailNote}>
-        To change any of these, please contact your care team. Editing your
-        details here is coming soon.
-      </Text>
-    </Sheet>
   );
 }

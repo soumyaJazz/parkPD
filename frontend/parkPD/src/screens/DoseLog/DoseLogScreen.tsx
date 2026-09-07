@@ -7,8 +7,8 @@ import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { minInset, screenPadding, spacing } from '../../theme';
 import type { DoseDraft } from '../../types/doseLog';
-import { EMPTY_DOSE, toDoseLog } from '../../types/doseLog';
-import { parseTime24 } from '../../utils/date';
+import { EMPTY_DOSE, toDoseLogs } from '../../types/doseLog';
+import { toLocalTime } from '../../utils/date';
 import PagedFlow, { DONE, nextStep, validatePage } from './PagedFlow';
 import ScrollFlow, { firstMissing } from './ScrollFlow';
 import type { DoseContext } from './questions';
@@ -35,7 +35,7 @@ function DoseLogScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { morning, plan } = route.params;
-  const totalDoses = plan.num_doses;
+  const totalDoses = plan.dose_count;
 
   const [doses, setDoses] = useState<DoseDraft[]>(() =>
     Array.from({ length: totalDoses }, () => EMPTY_DOSE),
@@ -68,7 +68,7 @@ function DoseLogScreen({ navigation, route }: Props) {
     dose,
     doseNumber: here.dose + 1,
     medicine: plan.medicine_name,
-    wakeTime: parseTime24(morning.wake_time),
+    wakeTime: toLocalTime(morning.wake_time),
     previous: here.dose > 0 ? doses[here.dose - 1] : null,
     // What each layout takes out of the window before a question gets its
     // width: the screen's gutter for both, plus the timeline rail and the
@@ -96,7 +96,9 @@ function DoseLogScreen({ navigation, route }: Props) {
       date: route.params.date,
       morning,
       plan,
-      doses: doses.map(toDoseLog),
+      // Stamped here rather than dose by dose: the whole day's times go on
+      // one clock, carrying on from the wake-up time - see `toDoseLogs`.
+      doses: toDoseLogs(doses, route.params.date, morning.wake_time),
     });
   };
 

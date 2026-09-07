@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StatusBar, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { fetchDayStatuses } from '../../api';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MonthCalendar from '../../components/MonthCalendar';
 import { showToast } from '../../components/Toast';
@@ -9,13 +11,13 @@ import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, feedback, minInset, spacing } from '../../theme';
 import type { DayStatusMap } from '../../types/dailyLog';
-import { addDays, dayKey, greetingFor, startOfDay } from '../../utils/date';
+import { dayKey, greetingFor, monthRange, startOfDay } from '../../utils/date';
 import type { HomeStat, MenuItem } from './parts';
 import {
+  CalendarNotice,
   HomeHero,
   LogFooter,
   MenuDrawer,
-  ProfileSheet,
   StatRow,
 } from './parts';
 import { styles } from './HomeScreen.styles';
@@ -42,20 +44,6 @@ const STATS: readonly HomeStat[] = [
 ];
 
 /**
- * TODO(api): which days already carry a log comes from the server once the
- * daily-log endpoints exist. Written relative to today so the demo doesn't go
- * stale, and so "in progress" has a day to point at.
- */
-function demoStatuses(from: Date): DayStatusMap {
-  return {
-    [dayKey(addDays(from, -1))]: 'logged',
-    [dayKey(addDays(from, -2))]: 'logged',
-    [dayKey(addDays(from, -3))]: 'in-progress',
-    [dayKey(addDays(from, -4))]: 'logged',
-  };
-}
-
-/**
  * Where a signed-in day starts: how things stand, and which day to log.
  *
  * One clock reading serves the whole screen - the greeting, which days are
@@ -67,13 +55,11 @@ function HomeScreen({ navigation }: Props) {
   const { user, signOut } = useAuth();
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   const now = useMemo(() => new Date(), []);
   const today = useMemo(() => startOfDay(now), [now]);
-  const statuses = useMemo(() => demoStatuses(today), [today]);
 
   // The month on screen, which isn't the selection: the user can look back
   // through the year without picking anything.
@@ -81,6 +67,67 @@ function HomeScreen({ navigation }: Props) {
   // Nothing is chosen at first. Preselecting today would put a primary action
   // on screen before the user has said which day they mean.
   const [selected, setSelected] = useState<Date | null>(null);
+
+  const [statuses, setStatuses] = useState<DayStatusMap>({});
+  // Starts true, so the first paint says the days are on their way. A month
+  // with no marks yet looks exactly like a month nobody has logged.
+  const [isLoadingDays, setLoadingDays] = useState(true);
+  const [daysError, setDaysError] = useState<string | null>(null);
+
+  /** Which request is the current one - see the check inside `loadStatuses`. */
+  const requestId = useRef(0);
+  const { from, to } = useMemo(() => monthRange(month), [month]);
+
+  /**
+   * The marks for the month on screen.
+   *
+   * Only the month drawn, not the whole account: the calendar shows thirty
+   * cells, and a year of days to fill them in is work the phone would throw
+   * away - more of it every month the app is used.
+   */
+  const loadStatuses = useCallback(async () => {
+    const id = requestId.current + 1;
+    requestId.current = id;
+
+    setLoadingDays(true);
+    setDaysError(null);
+
+    try {
+      const { data } = await fetchDayStatuses(from, to);
+      // A slow answer for a month the user has already stepped past would
+      // otherwise replace the month they are actually looking at.
+      if (requestId.current !== id) {
+        return;
+      }
+      setStatuses(data?.statuses ?? {});
+    } catch (error) {
+      if (requestId.current !== id) {
+        return;
+      }
+      setDaysError(
+        error instanceof Error
+          ? error.message
+          : 'Could not load your logged days.',
+      );
+    } finally {
+      if (requestId.current === id) {
+        setLoadingDays(false);
+      }
+    }
+  }, [from, to]);
+
+  /**
+   * On focus rather than on mount, and re-run whenever the month changes.
+   *
+   * Focus is what catches the day that was just logged: the review screen pops
+   * back to here, and without this the calendar would still be showing what it
+   * knew before the log was saved.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      loadStatuses();
+    }, [loadStatuses]),
+  );
 
   const topInset = Math.max(minInset.top, insets.top);
   const bottomInset = Math.max(minInset.bottom, insets.bottom);
@@ -96,7 +143,7 @@ function HomeScreen({ navigation }: Props) {
   const handleMenuSelect = (item: MenuItem) => {
     setIsMenuOpen(false);
     if (item.key === 'profile') {
-      setIsProfileOpen(true);
+      navigation.navigate('Profile');
       return;
     }
     if (item.key === 'signOut') {
@@ -149,6 +196,11 @@ function HomeScreen({ navigation }: Props) {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your log</Text>
+          <CalendarNotice
+            loading={isLoadingDays}
+            error={daysError}
+            onRetry={loadStatuses}
+          />
           <MonthCalendar
             month={month}
             onMonthChange={setMonth}
@@ -182,20 +234,15 @@ function HomeScreen({ navigation }: Props) {
         />
       )}
 
-      {isProfileOpen && (
-        <ProfileSheet
-          user={user}
-          onClose={() => setIsProfileOpen(false)}
-          bottomInset={bottomInset}
-        />
-      )}
-
       {/* Said plainly, and it names the consequence rather than asking "are you
-          sure?" - getting back in means waiting on a new code by email. */}
+          sure?" - getting back in means waiting on a new code. Named the way
+          this account actually receives one, since half of them are texted. */}
       <ConfirmDialog
         visible={isConfirming}
         title="Sign out of parkPD?"
-        message="You will need a new code sent to your email the next time you sign in."
+        message={`You will need a new code sent to your ${
+          user?.verified_with === 'phone' ? 'mobile number' : 'email'
+        } the next time you sign in.`}
         confirmLabel={isSigningOut ? 'Signing out...' : 'Sign out'}
         cancelLabel="Stay signed in"
         destructive

@@ -3,14 +3,31 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { dataFile } from '../common/data-store';
+import type { AuthMethod } from '../users/users.service';
 
 export type OtpPurpose = 'login' | 'signup';
 
+/**
+ * Where a stored challenge was sent, reading a record from either side of the
+ * rename. Live records outlast a deploy by up to the expiry, so for those few
+ * minutes both shapes are on disk at once.
+ */
+function destinationOf(record: OtpRecord): string {
+  return record.contact ?? record.email ?? '';
+}
+
 interface OtpRecord {
   challengeId: string;
-  email: string;
+  /**
+   * Where the code was sent - an address or a number, per `method`. Named for
+   * what it is rather than for the only kind there used to be.
+   */
+  contact: string;
+  /** Read only when reviving a record written before the rename. */
+  email?: string;
   otpHash: string; // hashed, never the raw code
   purpose: OtpPurpose; // which flow this challenge was issued for
+  method: AuthMethod; // which detail the code went to, carried to verify()
   expiresAt: number;
   attempts: number; // wrong guesses so far, caps brute force
   createdAt: number; // used for the resend cooldown
@@ -27,8 +44,14 @@ export type GenerateResult =
     }
   | { status: 'cooldown'; retryAfterSeconds: number };
 
+/**
+ * On success, `contact` is where the code went and `method` says which kind of
+ * detail that was, so the account can record what proved it. Both are read off
+ * the challenge rather than taken from the verify request: the client picks
+ * where a code is sent, not what it counts as afterwards.
+ */
 export type VerifyResult =
-  | { status: 'ok'; email: string }
+  | { status: 'ok'; contact: string; method: AuthMethod }
   | { status: 'not-found' }
   | { status: 'expired' }
   | { status: 'locked' }
@@ -101,9 +124,13 @@ export class OtpService {
     return crypto.randomInt(1000, 10000).toString();
   }
 
-  generateAndStore(email: string, purpose: OtpPurpose): GenerateResult {
+  generateAndStore(
+    contact: string,
+    purpose: OtpPurpose,
+    method: AuthMethod,
+  ): GenerateResult {
     const records = this.readLive();
-    const existing = records.find((r) => r.email === email);
+    const existing = records.find((r) => destinationOf(r) === contact);
 
     // without a cooldown a loop can flood a stranger's inbox and get the
     // SMTP account banned
@@ -132,7 +159,7 @@ export class OtpService {
 
     const record: OtpRecord = {
       challengeId,
-      email,
+      contact,
       otpHash: this.hash(challengeId, otp),
       expiresAt,
       attempts: 0,
@@ -140,11 +167,15 @@ export class OtpService {
       // stamped from the caller: verify() compares it against the purpose the
       // client sends, so a code mailed for signup can't be spent on a login
       purpose,
+      method,
     };
 
-    // one live OTP per email, otherwise an older code still works and
+    // one live OTP per destination, otherwise an older code still works and
     // widens the guessing window
-    this.writeAll([...records.filter((r) => r.email !== email), record]);
+    this.writeAll([
+      ...records.filter((r) => destinationOf(r) !== contact),
+      record,
+    ]);
 
     return {
       status: 'ok',
@@ -200,6 +231,13 @@ export class OtpService {
 
     // remove the record after successful verification, makes it single-use
     this.writeAll(records.filter((r) => r.challengeId !== challengeId));
-    return { status: 'ok', email: record.email };
+    // A challenge written before these fields existed can still be live for
+    // the few minutes until it expires; it can only have been an email,
+    // because that is the only kind the server used to issue.
+    return {
+      status: 'ok',
+      contact: destinationOf(record),
+      method: record.method ?? 'email',
+    };
   }
 }

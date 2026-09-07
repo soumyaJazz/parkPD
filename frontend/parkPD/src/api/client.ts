@@ -177,7 +177,7 @@ async function performRefresh(): Promise<boolean> {
 const NEVER_RETRIED = ['/auth/refresh', '/auth/logout'];
 
 type RequestInit = {
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT';
   body?: unknown;
 };
 
@@ -269,4 +269,9 @@ export function post<T>(path: string, body: unknown): Promise<ApiResult<T>> {
 /** GETs and resolves with the unwrapped envelope, or throws an ApiError. */
 export function get<T>(path: string): Promise<ApiResult<T>> {
   return request<T>(path, { method: 'GET' });
+}
+
+/** PUTs JSON. Used where a request replaces a record rather than adding one. */
+export function put<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+  return request<T>(path, { method: 'PUT', body });
 }

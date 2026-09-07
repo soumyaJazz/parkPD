@@ -168,7 +168,7 @@ function MorningCheckScreen({ navigation, route }: Props) {
     if (plan.timesTaken === 0) {
       navigation.navigate('OtherMeds', {
         date: route.params.date,
-        morning: toMorningCheck(answers),
+        morning: toMorningCheck(answers, route.params.date),
         plan: toMedicationPlan(plan),
         doses: [],
       });
@@ -179,7 +179,7 @@ function MorningCheckScreen({ navigation, route }: Props) {
     // mounted underneath, so the answers are still here on the way back.
     navigation.navigate('DoseLog', {
       date: route.params.date,
-      morning: toMorningCheck(answers),
+      morning: toMorningCheck(answers, route.params.date),
       plan: toMedicationPlan(plan),
     });
   };

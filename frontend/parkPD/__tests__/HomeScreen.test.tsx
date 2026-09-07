@@ -6,6 +6,7 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import type { ReactTestInstance } from 'react-test-renderer';
 import HomeScreen from '../src/screens/Home';
+import { fetchDayStatuses } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 
 type HomeProps = React.ComponentProps<typeof HomeScreen>;
@@ -15,7 +16,40 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
+/**
+ * `useFocusEffect` reaches for a navigator above it, and this suite renders the
+ * screen on its own - see the note on `navigate` below. Running the effect on
+ * mount is what focus amounts to for a screen that is the only thing mounted.
+ */
+jest.mock('@react-navigation/native', () => {
+  const { useEffect } = require('react');
+  return {
+    useFocusEffect: (effect: () => void | (() => void)) =>
+      useEffect(effect, [effect]),
+  };
+});
+
+/** Which days carry a log now comes from the server, so the server is stubbed. */
+jest.mock('../src/api', () => ({ fetchDayStatuses: jest.fn() }));
+
 const mockedUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
+const mockedFetchDayStatuses = fetchDayStatuses as jest.MockedFunction<
+  typeof fetchDayStatuses
+>;
+
+/**
+ * The four days behind the fixed Monday below, as the server would send them.
+ *
+ * `in-progress` is stubbed even though the server only ever answers `logged`
+ * today: the footer has a different thing to say about a part-filled day, and
+ * that is the screen behaviour under test here.
+ */
+const AUGUST_STATUSES = {
+  '2026-08-23': 'logged',
+  '2026-08-22': 'logged',
+  '2026-08-21': 'in-progress',
+  '2026-08-20': 'logged',
+} as const;
 
 /** Whatever carries this accessibility label and takes a press, if anything. */
 function findPressable(tree: ReactTestInstance, label: string) {
@@ -27,13 +61,21 @@ function findPressable(tree: ReactTestInstance, label: string) {
   )[0];
 }
 
-/** Presses it, the way a user would. */
+/**
+ * Presses it, the way a user would, and lets whatever it set off settle.
+ *
+ * Async because a press can change the month, and a new month asks the server
+ * for its days - so a synchronous act would return while that answer was still
+ * in flight and leave the update landing outside it.
+ */
 function press(tree: ReactTestInstance, label: string) {
   const target = findPressable(tree, label);
   if (!target) {
     throw new Error(`No pressable labelled "${label}"`);
   }
-  return ReactTestRenderer.act(() => target.props.onPress());
+  return ReactTestRenderer.act(async () => {
+    await target.props.onPress();
+  });
 }
 
 function shows(renderer: ReactTestRenderer.ReactTestRenderer, text: string) {
@@ -61,11 +103,19 @@ const navigate = jest.fn();
 
 beforeEach(() => {
   navigate.mockClear();
+  mockedFetchDayStatuses.mockReset();
+  mockedFetchDayStatuses.mockResolvedValue({
+    message: 'You have logged 4 days in this period.',
+    data: { statuses: { ...AUGUST_STATUSES } },
+  });
 });
 
 async function render() {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
-  await ReactTestRenderer.act(() => {
+  // An async callback, so that the day statuses the screen asks for on mount
+  // have settled by the time this returns - otherwise every test would be
+  // asserting against a calendar that is still loading.
+  await ReactTestRenderer.act(async () => {
     renderer = ReactTestRenderer.create(
       <HomeScreen
         navigation={{ navigate } as unknown as HomeProps['navigation']}
@@ -173,5 +223,46 @@ describe('the calendar, on a fixed Monday morning', () => {
     }
 
     expect(shows(renderer, 'December 2025')).toBe(true);
+  });
+
+  test('each month asked for is the month on screen', async () => {
+    const renderer = await render();
+
+    expect(mockedFetchDayStatuses).toHaveBeenLastCalledWith(
+      '2026-08-01',
+      '2026-08-31',
+    );
+
+    // February is the month that catches an off-by-one on the last day.
+    for (let step = 0; step < 6; step++) {
+      await press(renderer.root, 'Previous month');
+    }
+
+    expect(mockedFetchDayStatuses).toHaveBeenLastCalledWith(
+      '2026-02-01',
+      '2026-02-28',
+    );
+  });
+
+  /**
+   * A calendar with no marks looks exactly like a calendar for someone who has
+   * never logged a day, so a failure has to say so in words - and has to offer
+   * the way out, since there is nothing else on this screen that retries it.
+   */
+  test('a server that cannot be reached says so, and can be asked again', async () => {
+    mockedFetchDayStatuses.mockRejectedValueOnce(
+      new Error('Could not reach the server.'),
+    );
+
+    const renderer = await render();
+
+    expect(shows(renderer, 'Could not reach the server.')).toBe(true);
+    expect(mockedFetchDayStatuses).toHaveBeenCalledTimes(1);
+
+    await press(renderer.root, 'Try loading your logged days again');
+
+    expect(mockedFetchDayStatuses).toHaveBeenCalledTimes(2);
+    expect(shows(renderer, 'Could not reach the server.')).toBe(false);
+    expect(shows(renderer, 'Sunday, August 23, 2026, logged')).toBe(true);
   });
 });

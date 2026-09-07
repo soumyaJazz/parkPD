@@ -1,4 +1,9 @@
-import { formatTime24 } from '../utils/date';
+import {
+  dayClock,
+  parseDayKey,
+  timeZoneName,
+  utcOffsetMinutes,
+} from '../utils/date';
 import type { TimeOfDay } from '../utils/date';
 import type { Flag } from './questionnaire';
 import type { DoseLog } from './doseLog';
@@ -29,7 +34,14 @@ export const DAY_STATUS_LABEL: Record<DayStatus, string> = {
  * and what goes on the wire differ only in shape, never in vocabulary.
  */
 export type MorningCheck = {
-  /** "HH:MM", 24-hour, in the user's own timezone. */
+  /**
+   * When they woke, as a UTC instant - "2026-09-06T01:30:00.000Z".
+   *
+   * Sent as the moment rather than as the reading on the clock: "07:00" only
+   * means something next to the timezone it was read in, and this log is meant
+   * to be read back long after and possibly somewhere else. `toLocalTime` puts
+   * it back on a clock face for display.
+   */
   wake_time: string;
   /**
    * What was noticed on waking. An empty list is the "None" answer, which is
@@ -38,7 +50,7 @@ export type MorningCheck = {
    */
   morning_symptoms: string[];
   /** 0-100: none of the usual morning routine, through all of it. */
-  wakeup_independence: number;
+  wakeup_independence_pct: number;
   /**
    * 1 when daily activities were unaffected, 0 when Parkinson's limited them.
    *
@@ -46,7 +58,7 @@ export type MorningCheck = {
    * was *affected*, so the answers map inverted - "yes, I was not able to do
    * work" is 0 here.
    */
-  daily_activities_independence: Flag;
+  daily_activities_independence_flag: Flag;
 };
 
 /** Which way the fourth question was answered, in the words it was asked in. */
@@ -144,17 +156,27 @@ export function toggleMorningSymptom(
     : [...current, option];
 }
 
-/** The draft as it is sent. */
-export function toMorningCheck(draft: MorningCheckDraft): MorningCheck {
+/**
+ * The draft as it is sent.
+ *
+ * Takes the day being logged because a wake-up time is not a moment without
+ * one - see `dayClock`. This is the day's first reading, so it opens the
+ * clock that the doses then carry on from.
+ */
+export function toMorningCheck(
+  draft: MorningCheckDraft,
+  date: string,
+): MorningCheck {
   return {
-    wake_time: formatTime24(draft.wakeTime),
+    wake_time: dayClock(date)(draft.wakeTime),
     morning_symptoms: (draft.symptoms ?? []).flatMap(symptom =>
       symptom === MORNING_SYMPTOM_OTHER
         ? [draft.symptomOther.trim()]
         : [symptom],
     ),
-    wakeup_independence: draft.independence,
-    daily_activities_independence: draft.dailyActivities === 'functional' ? 1 : 0,
+    wakeup_independence_pct: draft.independence,
+    daily_activities_independence_flag:
+      draft.dailyActivities === 'functional' ? 1 : 0,
   };
 }
 
@@ -186,7 +208,7 @@ export const TIMES_TAKEN = {
 export type MedicationPlan = {
   medicine_name: Medicine;
   /** Occasions in the day, not tablets on any one of them. */
-  num_doses: number;
+  dose_count: number;
 };
 
 export type MedicationPlanDraft = {
@@ -209,7 +231,7 @@ export function describeTimesTaken(count: number): string {
 export function toMedicationPlan(draft: MedicationPlanDraft): MedicationPlan {
   return {
     medicine_name: draft.medicine ?? MEDICINES[0],
-    num_doses: draft.timesTaken,
+    dose_count: draft.timesTaken,
   };
 }
 
@@ -380,16 +402,16 @@ export const WAKE_COUNTS = [
  */
 export type NightReview = {
   /** 1 when the night is broken by waking, 0 when it is not. */
-  night_wakeup: Flag;
+  night_wakeup_flag: Flag;
   /** How many times, or null on an unbroken night. `4` means four or more. */
   night_wakeup_count: number | null;
   /**
    * What was felt on waking, or null when nothing was - which is also what an
-   * unbroken night sends, since `night_wakeup` already tells the two apart.
+   * unbroken night sends, since `night_wakeup_flag` already tells the two apart.
    */
   night_symptoms: string[] | null;
   /** 1 when the symptoms disturbed the night, or null when there were none. */
-  night_symptoms_troublesome: Flag | null;
+  night_symptoms_troublesome_flag: Flag | null;
 };
 
 export type NightReviewDraft = {
@@ -432,10 +454,10 @@ export function collapseNight(draft: NightReviewDraft): NightReviewDraft {
 export function toNightReview(draft: NightReviewDraft): NightReview {
   if (draft.wakesAtNight !== true) {
     return {
-      night_wakeup: 0,
+      night_wakeup_flag: 0,
       night_wakeup_count: null,
       night_symptoms: null,
-      night_symptoms_troublesome: null,
+      night_symptoms_troublesome_flag: null,
     };
   }
 
@@ -445,10 +467,10 @@ export function toNightReview(draft: NightReviewDraft): NightReview {
       : null;
 
   return {
-    night_wakeup: 1,
+    night_wakeup_flag: 1,
     night_wakeup_count: draft.wakeCount,
     night_symptoms: symptoms,
-    night_symptoms_troublesome:
+    night_symptoms_troublesome_flag:
       symptoms === null ? null : draft.troublesome === true ? 1 : 0,
   };
 }
@@ -456,18 +478,38 @@ export function toNightReview(draft: NightReviewDraft): NightReview {
 /**
  * A whole day, as it is sent.
  *
- * The three common questions are spread flat rather than nested: their field
- * names were chosen to stand on their own at the top level, and wrapping
- * `other_meds` inside an `other_meds` object would say the same word twice.
+ * Every part is spread flat rather than nested. The field names were each
+ * chosen to stand on their own at the top level - `wake_time` and
+ * `medicine_name` say what they are without a wrapper to say it for them - and
+ * a flat body is one less shape for the server's DTO to have to rebuild.
  */
 export type DailyLogRequest = {
-  /** `dayKey()` - `YYYY-MM-DD` in the user's own timezone. */
-  date: string;
-  morning_check: MorningCheck;
-  medication_plan: MedicationPlan;
+  /**
+   * `dayKey()` - `YYYY-MM-DD` in the user's own timezone.
+   *
+   * Local while every time in the log is UTC, and deliberately so: this is the
+   * day the person lived, which is the thing they are logging. It is also what
+   * anchors the instants below, since a log that runs past midnight has
+   * readings on the day after this one.
+   */
+  log_date: string;
+  /**
+   * The IANA zone the log was recorded in - "Asia/Kolkata" - or null on an
+   * engine that cannot name one.
+   *
+   * Sent alongside the UTC instants rather than instead of them. The instants
+   * are what make two logs comparable; this is what lets a wake-up time be
+   * read back as the hour of the morning it actually was, which for a
+   * Parkinson's log is most of what a wake-up time is for.
+   */
+  timezone: string | null;
+  /** Minutes east of UTC on the logged day - +330 for India. */
+  utc_offset_minutes: number;
   /** One entry per dose, in the order they were taken. Empty on a day with none. */
   doses: DoseLog[];
-} & OtherMeds &
+} & MorningCheck &
+  MedicationPlan &
+  OtherMeds &
   SideEffects &
   NightReview;
 
@@ -490,10 +532,14 @@ export type DailyLogParts = {
 /** The day as one payload, assembled from the parts each step collected. */
 export function toDailyLog(parts: DailyLogParts): DailyLogRequest {
   return {
-    date: parts.date,
-    morning_check: parts.morning,
-    medication_plan: parts.plan,
+    log_date: parts.date,
+    timezone: timeZoneName(),
+    // The offset on the day logged, not the day submitted: a log filled in
+    // after a DST changeover would otherwise be stamped with the wrong one.
+    utc_offset_minutes: utcOffsetMinutes(parseDayKey(parts.date)),
     doses: parts.doses,
+    ...parts.morning,
+    ...parts.plan,
     ...parts.otherMeds,
     ...parts.sideEffects,
     ...parts.night,

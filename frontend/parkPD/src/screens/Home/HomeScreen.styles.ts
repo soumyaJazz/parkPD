@@ -154,6 +154,47 @@ export const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.sm,
   },
+  /**
+   * What the calendar has to say for itself before its marks arrive, or when
+   * they never do. Said in words rather than as a spinner or a coloured edge:
+   * a calendar with no marks looks exactly like a calendar for someone who has
+   * never logged a day.
+   */
+  notice: {
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  noticeText: {
+    fontSize: fontSize.body,
+    lineHeight: lineHeight.body,
+    color: colors.subtext,
+  },
+  // Semibold as well as red, so the difference from the line above doesn't
+  // rest on colour alone.
+  noticeError: {
+    fontSize: fontSize.body,
+    lineHeight: lineHeight.body,
+    fontWeight: fontWeight.semibold,
+    color: feedback.error.fg,
+  },
+  retryButton: {
+    minHeight: TARGET,
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  retryButtonPressed: {
+    backgroundColor: colors.surface,
+  },
+  retryText: {
+    fontSize: fontSize.button,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+  },
 
   // --- Pinned footer ------------------------------------------------------
   footer: {
@@ -213,69 +254,6 @@ export const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
 
-  // --- Sheets -------------------------------------------------------------
-  /**
-   * Drawn in the screen rather than in a `Modal`, so that choosing "sign out"
-   * can put the confirmation up while this is coming down - two native modals
-   * changing at once is the one arrangement iOS drops on the floor.
-   */
-  sheetRoot: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(24, 26, 54, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
-    gap: spacing.sm,
-  },
-  sheetTitle: {
-    fontSize: fontSize.title - 4,
-    fontWeight: fontWeight.bold,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  // Its own row under a gap, so it is never mistaken for one more menu entry.
-  sheetClose: {
-    minHeight: TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.sm,
-    borderRadius: radius.md + 4,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  sheetClosePressed: {
-    backgroundColor: colors.surface,
-  },
-  sheetCloseText: {
-    fontSize: fontSize.button,
-    fontWeight: fontWeight.semibold,
-    color: colors.text,
-  },
-  detailRow: {
-    gap: 2,
-    paddingVertical: spacing.sm,
-  },
-  detailLabel: {
-    fontSize: fontSize.small,
-    fontWeight: fontWeight.semibold,
-    color: colors.subtext,
-    textTransform: 'uppercase',
-    letterSpacing: letterSpacing.label,
-  },
-  detailValue: {
-    fontSize: fontSize.button + 2,
-    lineHeight: 24,
-    color: colors.text,
-  },
   // --- Menu drawer --------------------------------------------------------
   flex: {
     flex: 1,
@@ -387,11 +365,5 @@ export const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.divider,
     marginVertical: spacing.lg,
-  },
-  detailNote: {
-    fontSize: fontSize.small,
-    lineHeight: lineHeight.body,
-    color: colors.subtext,
-    marginTop: spacing.xs,
   },
 });

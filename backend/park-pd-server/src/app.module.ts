@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { LogsModule } from './logs/logs.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     // the global guard below injects UsersService; AuthModule re-exports
     // JwtModule for the same reason
     UsersModule,
+    LogsModule,
   ],
   controllers: [AppController],
   providers: [

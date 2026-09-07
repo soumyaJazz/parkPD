@@ -6,12 +6,14 @@ import { AuthController } from './auth.controller';
 import { RefreshTokenService } from './refresh-token.service';
 import { OtpModule } from '../otp/otp.module';
 import { MailModule } from '../mail/mail.module';
+import { SmsModule } from '../sms/sms.module';
 import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
     OtpModule,
     MailModule,
+    SmsModule,
     UsersModule,
     // registerAsync, not register: register() is evaluated while the module
     // tree is being built, which can run before ConfigModule has read .env.

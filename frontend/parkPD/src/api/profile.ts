@@ -1,5 +1,8 @@
-import type { ProfileSetupRequest } from '../types/profile';
-import { post } from './client';
+import type {
+  ProfileSetupRequest,
+  ProfileUpdateRequest,
+} from '../types/profile';
+import { post, put } from './client';
 import type { ApiResult } from './client';
 import type { AuthUser } from './auth';
 
@@ -20,4 +23,21 @@ export function completeProfile(
   payload: ProfileSetupRequest,
 ): Promise<ApiResult<ProfileResult>> {
   return post<ProfileResult>('/users/profile', payload);
+}
+
+/**
+ * Saves the profile screen's changes.
+ *
+ * PUT, not POST: the screen sends every answer back, so this replaces the
+ * profile rather than merging into it - which is what lets an answer the user
+ * cleared actually clear.
+ *
+ * There is no matching fetch. The account is already held by the auth context
+ * from launch, questionnaire and all, so the screen fills itself in from that
+ * rather than asking again - and what comes back here replaces it.
+ */
+export function updateProfile(
+  payload: ProfileUpdateRequest,
+): Promise<ApiResult<ProfileResult>> {
+  return put<ProfileResult>('/users/profile', payload);
 }

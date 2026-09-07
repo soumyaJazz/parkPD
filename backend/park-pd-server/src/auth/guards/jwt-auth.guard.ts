@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { UsersService } from '../../users/users.service';
+import { UsersService, primaryContact } from '../../users/users.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import type { AuthenticatedRequest } from '../authenticated-request';
 import type { JwtPayload } from '../auth.service';
@@ -63,7 +63,7 @@ export class JwtAuthGuard implements CanActivate {
     // the account still exists - users.json can lose a row, and without this
     // check a deleted user keeps full access until their token expires.
     const user = this.usersService.findById(payload.sub);
-    if (!user || user.email !== payload.email) {
+    if (!user || primaryContact(user) !== payload.contact) {
       throw new UnauthorizedException({
         message: REJECTED,
         reason: 'no-account',

@@ -30,6 +30,12 @@ type Props = {
    * under the field, so the screen never has to own error UI of its own.
    */
   onSubmit: (method: AuthMethod, contact: string) => void | Promise<void>;
+  /**
+   * A line under the email/phone control. Sign-up uses it to say that the
+   * choice is permanent, which is the one moment saying so can still change
+   * what the user does.
+   */
+  methodNote?: string;
   /** Prompt shown under the button, e.g. "Don't have an account?". */
   footerText: string;
   footerActionLabel: string;
@@ -38,10 +44,7 @@ type Props = {
 
 const METHODS: Array<{ key: AuthMethod; label: string; available: boolean }> = [
   { key: 'email', label: 'Email', available: true },
-  // /auth/request-otp is email-only - there is no SMS sender behind this yet.
-  // Flip to true once one exists; the screens' phone guard covers the gap if
-  // it gets flipped early.
-  { key: 'phone', label: 'Phone', available: false },
+  { key: 'phone', label: 'Phone', available: true },
 ];
 
 /** Named in the hint under the control, so it can't fall out of step with the list. */
@@ -57,6 +60,7 @@ function AuthForm({
   submitLabel = 'Continue',
   submittingLabel = 'Sending code...',
   onSubmit,
+  methodNote,
   footerText,
   footerActionLabel,
   onFooterAction,
@@ -141,7 +145,7 @@ function AuthForm({
           <View
             style={[
               styles.segmented,
-              unavailableMethod && styles.segmentedWithHint,
+              (unavailableMethod || methodNote) && styles.segmentedWithHint,
             ]}
           >
             {METHODS.map(option => {
@@ -170,11 +174,13 @@ function AuthForm({
               );
             })}
           </View>
-          {unavailableMethod && (
+          {unavailableMethod ? (
             <Text style={styles.methodHint}>
               {unavailableMethod.label} verification is coming soon.
             </Text>
-          )}
+          ) : methodNote ? (
+            <Text style={styles.methodHint}>{methodNote}</Text>
+          ) : null}
 
           <Text style={globalStyles.label}>
             {isPhone ? 'Phone number' : 'Email address'}

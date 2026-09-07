@@ -27,7 +27,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   async requestOtp(@Body() dto: RequestOtpDto) {
-    return this.authService.requestOtp(dto.email, dto.purpose, dto.method);
+    return this.authService.requestOtp(dto.contact, dto.purpose, dto.method);
   }
 
   @Public()

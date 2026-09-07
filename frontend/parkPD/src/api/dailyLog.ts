@@ -1,11 +1,11 @@
-import type { DailyLogRequest } from '../types/dailyLog';
-import { post } from './client';
+import type { DailyLogRequest, DayStatusMap } from '../types/dailyLog';
+import { get, post } from './client';
 import type { ApiResult } from './client';
 
 /** What `POST /logs` hands back: the day as the server now holds it. */
 export type DailyLogResult = {
   /** `YYYY-MM-DD`, echoed so the caller can mark the right day as logged. */
-  date: string;
+  log_date: string;
 };
 
 /**
@@ -20,4 +20,31 @@ export function submitDailyLog(
   payload: DailyLogRequest,
 ): Promise<ApiResult<DailyLogResult>> {
   return post<DailyLogResult>('/logs', payload);
+}
+
+/** What `GET /logs` hands back: only the days that carry a log. */
+export type DayStatusesResult = {
+  /**
+   * Keyed by `dayKey()`. Days with nothing to say are absent rather than
+   * listed as empty - a month is mostly days nobody has logged.
+   */
+  statuses: DayStatusMap;
+};
+
+/**
+ * Which days between two dates already carry a log.
+ *
+ * A range rather than "everything this account has": the calendar draws one
+ * month at a time, and a year of days to fill in thirty cells is work the
+ * phone would only throw away - more of it every month the app is used.
+ *
+ * Both ends are included: `from` and `to` are the first and last cells drawn.
+ */
+export function fetchDayStatuses(
+  from: string,
+  to: string,
+): Promise<ApiResult<DayStatusesResult>> {
+  return get<DayStatusesResult>(
+    `/logs?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  );
 }

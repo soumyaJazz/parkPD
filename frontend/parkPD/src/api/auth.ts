@@ -1,6 +1,6 @@
 import type { AuthFlow, AuthMethod } from '../types/auth';
 import type { Gender } from '../types/profile';
-import type { DoseMode } from '../types/questionnaire';
+import type { QuestionnaireAnswers } from '../types/questionnaire';
 import { ApiError, get, post } from './client';
 import type { ApiResult } from './client';
 
@@ -23,47 +23,67 @@ export type OtpChallenge = {
 /**
  * Asks the server to send a one-time code.
  *
- * `purpose` is what lets the server reject a signup for an address that already
- * has an account (and a login for one that doesn't) before any mail goes out,
- * so the user finds out now rather than after typing a code.
+ * `purpose` is what lets the server reject a signup for a detail that already
+ * has an account (and a login for one that doesn't) before any code goes out,
+ * so the user finds out now rather than after typing one.
  *
- * `method` is the tab the user picked; the server names it back in the
- * confirmation ("sent to your email address"), so that copy is written once,
- * on the side that knows where the code actually went.
+ * `method` says which kind of detail `contact` is - and so where the code goes
+ * and, on a signup, what the new account will be proved by. The server names
+ * it back in the confirmation ("sent to your email address"), so that copy is
+ * written once, on the side that knows where the code actually went.
  */
 export function requestOtp(
-  email: string,
+  contact: string,
   purpose: AuthFlow,
   method: AuthMethod = 'email',
 ): Promise<ApiResult<OtpChallenge>> {
   return post<OtpChallenge>('/auth/request-otp', {
-    // the server lowercases too, but matching here keeps what we send equal to
-    // what the account is stored under
-    email: email.trim().toLowerCase(),
+    // Trimmed here and normalised again on the server, which is the side that
+    // decides what counts as the same address or the same number. A phone is
+    // left as typed - lowercasing it would be meaningless, and the '+' matters.
+    contact: method === 'phone' ? contact.trim() : contact.trim().toLowerCase(),
     purpose,
     method,
   });
 }
 
-/** The account a verified code belongs to. Mirrors the server's user row. */
+/**
+ * The account a verified code belongs to. Mirrors the server's user row.
+ *
+ * The clinical answers are part of it - `GET /auth/me` returns the whole row -
+ * which is why the profile screen needs no fetch of its own: the account is
+ * already in hand from launch, and editing it is a matter of filling the form
+ * in from what is here.
+ *
+ * `Partial` because setup is what writes them, and an account exists without
+ * them for the minute between signing up and finishing the form. `dose_mode`
+ * is one of them: absent reads as the one-at-a-time default.
+ */
 export type AuthUser = {
   id: string;
-  email: string;
   created_at: string;
+  /**
+   * The two ways of reaching the person. Which one is *the account* is said by
+   * `verified_with` below, not by which happens to be filled in - an account
+   * made with a mobile number has no email until setup offers one, and the
+   * profile screen can take it away again.
+   */
+  email?: string;
+  phone?: string;
+  /**
+   * Which detail was verified to create this account - the one a code was
+   * actually delivered to. It is what the account is, so it is the one detail
+   * the profile screen shows locked. Absent on an account created before the
+   * server recorded it, every one of which was made by email.
+   */
+  verified_with?: AuthMethod;
   // Everything below is filled in by profile setup, which runs once straight
   // after sign-up - so an account exists without them for the minute in
   // between, and older rows on the server never had them at all.
   full_name?: string;
-  phone?: string;
   gender?: Gender;
   /** DD/MM/YYYY - the single field the profile form sends. */
   dob?: string;
-  /**
-   * How the user asked to be given the dose questions - one at a time, or all
-   * on one scrolling page. Chosen during setup; absent on an account saved
-   * before the question existed, which reads as the one-at-a-time default.
-   */
-  dose_mode?: DoseMode;
   /**
    * Set once, when setup is saved. Absent means the form is still owed, which
    * is what the navigator reads to decide where a signed-in user lands. It
@@ -71,7 +91,9 @@ export type AuthUser = {
    * setup abandoned half way is still owed after a reinstall.
    */
   profile_completed_at?: string;
-};
+  /** Last time the profile screen saved. Absent until it has been opened. */
+  profile_updated_at?: string;
+} & Partial<QuestionnaireAnswers>;
 
 /**
  * What `POST /auth/verify-otp` hands back once the code checks out.

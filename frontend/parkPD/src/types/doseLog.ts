@@ -8,14 +8,20 @@
  */
 import type { Flag } from './questionnaire';
 import type { DailyActivities } from './dailyLog';
-import { formatTime24 } from '../utils/date';
-import type { TimeOfDay } from '../utils/date';
+import { dayClock } from '../utils/date';
+import type { DayClock, TimeOfDay } from '../utils/date';
 
 /** What Q3 and Q8 answer when the thing they ask about never happened. */
 export const NO_EFFECT = 'no-effect';
 export const NO_RETURN = 'no-return';
 
-/** A time, or the answer that there wasn't one. */
+/**
+ * A UTC instant, or the answer that there wasn't one.
+ *
+ * The instant is an ISO 8601 string - "2026-09-06T04:00:00.000Z" - never a
+ * clock reading. See `MorningCheck.wake_time` for why, and `dayClock` for how
+ * a reading on a clock gets its date.
+ */
 export type TimeOrNever = string | typeof NO_EFFECT | typeof NO_RETURN;
 
 /**
@@ -36,7 +42,7 @@ export const FRACTION_GLYPH: Record<DoseFraction, string> = {
   '1/2': '\u00BD',
 };
 
-/** What each fraction is worth in `dose_amount`. */
+/** What each fraction is worth in `tablets_count`. */
 export const FRACTION_VALUE: Record<DoseFraction, number> = {
   '1/4': 0.25,
   '1/3': 0.333,
@@ -97,10 +103,10 @@ export const ACTIVITY_LEVEL = {
 export const MAX_DYSKINESIA_HOURS = 23;
 
 export type DoseLog = {
-  /** "HH:MM", 24-hour. */
+  /** When it was taken, as a UTC instant. Empty only on an unanswered dose. */
   dose_time: string;
   /** Tablets on this occasion - 1, 1.5, 2.333 and so on. */
-  dose_amount: number;
+  tablets_count: number;
   /** A time, or `"no-effect"` when the medicine never took hold. */
   first_effect_time: TimeOrNever;
   /**
@@ -109,16 +115,16 @@ export type DoseLog = {
    * time, and the remaining questions are not put.
    */
   peak_effect_time: TimeOrNever | null;
-  peak_activity_level: number | null;
-  at_peak_daily_living_affected: Flag | null;
-  dyskinesia: Flag | null;
-  /** Minutes. Null unless `dyskinesia` is 1. */
-  dyskinesia_duration: number | null;
-  dyskinesia_body_part: string[] | null;
-  dyskinesia_daily_living_affected: Flag | null;
+  pal_pct: number | null;
+  at_pal_dl_affected_flag: Flag | null;
+  dysky_flag: Flag | null;
+  /** Minutes. Null unless `dysky_flag` is 1. */
+  dysky_duration: number | null;
+  dysky_body_part: string[] | null;
+  dysky_dl_affected_flag: Flag | null;
   /** A time, or `"no-return"` when the symptoms stayed away. */
   med_wear_off_time: TimeOrNever | null;
-  off_period_daily_living_affected: Flag | null;
+  off_period_dl_affected_flag: Flag | null;
 };
 
 /**
@@ -212,16 +218,40 @@ function affected(value: DailyActivities | null): Flag {
 }
 
 function timeOrNever(
+  clock: DayClock,
   time: TimeOfDay | null,
   never: boolean,
   sentinel: typeof NO_EFFECT | typeof NO_RETURN,
 ): TimeOrNever {
-  return never || time === null ? sentinel : formatTime24(time);
+  return never || time === null ? sentinel : clock(time);
 }
 
-/** The draft as it is sent. The screen validates before calling this. */
-export function toDoseLog(draft: DoseDraft): DoseLog {
+/**
+ * Every dose of the day, in the order they were taken.
+ *
+ * Done for the whole day at once rather than a dose at a time because the
+ * times have to be stamped in one run: the day's readings share a single
+ * `dayClock`, which is what carries the date across midnight for a late dose
+ * that wears off the following morning. `after` is the morning check's
+ * wake-up time, so the chain starts where the day did.
+ */
+export function toDoseLogs(
+  drafts: DoseDraft[],
+  date: string,
+  after: string,
+): DoseLog[] {
+  const clock = dayClock(date, after);
+  return drafts.map(draft => toDoseLog(draft, clock));
+}
+
+/** One dose as it is sent. The screen validates before this is reached. */
+function toDoseLog(draft: DoseDraft, clock: DayClock): DoseLog {
+  // Stamped in the order they happened rather than in the order the object
+  // below lists them: the clock reads a reading earlier than the last one as
+  // having crossed midnight, so feeding it out of order would invent a day.
+  const doseTime = draft.doseTime === null ? '' : clock(draft.doseTime);
   const firstEffect = timeOrNever(
+    clock,
     draft.firstEffect,
     draft.noFirstEffect,
     NO_EFFECT,
@@ -231,37 +261,45 @@ export function toDoseLog(draft: DoseDraft): DoseLog {
   // period that never began, so they are neither asked nor invented here.
   if (firstEffect === NO_EFFECT) {
     return {
-      dose_time: draft.doseTime === null ? '' : formatTime24(draft.doseTime),
-      dose_amount: doseAmount(draft),
+      dose_time: doseTime,
+      tablets_count: doseAmount(draft),
       first_effect_time: NO_EFFECT,
       peak_effect_time: null,
-      peak_activity_level: null,
-      at_peak_daily_living_affected: null,
-      dyskinesia: null,
-      dyskinesia_duration: null,
-      dyskinesia_body_part: null,
-      dyskinesia_daily_living_affected: null,
+      pal_pct: null,
+      at_pal_dl_affected_flag: null,
+      dysky_flag: null,
+      dysky_duration: null,
+      dysky_body_part: null,
+      dysky_dl_affected_flag: null,
       med_wear_off_time: null,
-      off_period_daily_living_affected: null,
+      off_period_dl_affected_flag: null,
     };
   }
+
+  const peakEffect = timeOrNever(
+    clock,
+    draft.peakEffect,
+    draft.noPeakEffect,
+    NO_EFFECT,
+  );
+  const wearOff = timeOrNever(clock, draft.wearOff, draft.noWearOff, NO_RETURN);
 
   const hasDyskinesia = draft.dyskinesia === true;
 
   return {
-    dose_time: draft.doseTime === null ? '' : formatTime24(draft.doseTime),
-    dose_amount: doseAmount(draft),
+    dose_time: doseTime,
+    tablets_count: doseAmount(draft),
     first_effect_time: firstEffect,
-    peak_effect_time: timeOrNever(draft.peakEffect, draft.noPeakEffect, NO_EFFECT),
-    peak_activity_level: draft.activityLevel,
-    at_peak_daily_living_affected: affected(draft.peakAdl),
-    dyskinesia: flag(hasDyskinesia),
-    dyskinesia_duration: hasDyskinesia ? dyskinesiaMinutes(draft) : null,
-    dyskinesia_body_part: hasDyskinesia ? draft.dyskinesiaParts : null,
-    dyskinesia_daily_living_affected: hasDyskinesia
+    peak_effect_time: peakEffect,
+    pal_pct: draft.activityLevel,
+    at_pal_dl_affected_flag: affected(draft.peakAdl),
+    dysky_flag: flag(hasDyskinesia),
+    dysky_duration: hasDyskinesia ? dyskinesiaMinutes(draft) : null,
+    dysky_body_part: hasDyskinesia ? draft.dyskinesiaParts : null,
+    dysky_dl_affected_flag: hasDyskinesia
       ? affected(draft.dyskinesiaAdl)
       : null,
-    med_wear_off_time: timeOrNever(draft.wearOff, draft.noWearOff, NO_RETURN),
-    off_period_daily_living_affected: affected(draft.offAdl),
+    med_wear_off_time: wearOff,
+    off_period_dl_affected_flag: affected(draft.offAdl),
   };
 }

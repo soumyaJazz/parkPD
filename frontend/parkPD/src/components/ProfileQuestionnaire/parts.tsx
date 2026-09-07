@@ -5,9 +5,9 @@ import {
   NumberField,
   QuestionCard,
   YesNo,
-} from '../../components/Questionnaire';
+} from '../Questionnaire';
 import { colors } from '../../theme';
-import { styles } from './ProfileQuestionsScreen.styles';
+import { styles } from './ProfileQuestionnaire.styles';
 
 /** The free-text field revealed by the "Other" body-part chip. */
 export function TextInputRow({

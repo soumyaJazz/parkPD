@@ -1,11 +1,20 @@
 /**
  * Calendar arithmetic and the wording that goes with it.
  *
- * Everything here works in the device's local timezone, deliberately: a day
- * being logged is a day in the user's own life, so "today" has to mean the day
- * they are living, not the UTC one. That is also why days are keyed by
- * `YYYY-MM-DD` built from the local parts rather than by `toISOString()`,
- * which would shift the key by a day either side of midnight.
+ * Two clocks run through here, and the split is deliberate.
+ *
+ * *Days* are local. A day being logged is a day in the user's own life, so
+ * "today" has to mean the day they are living, not the UTC one - which is why
+ * days are keyed by `YYYY-MM-DD` built from the local parts rather than by
+ * `toISOString()`, which would shift the key by a day either side of midnight.
+ *
+ * *Times* are UTC. A reading on a clock is ambiguous the moment it leaves the
+ * device that read it - "07:30" is not a moment until you know where it was
+ * read - and a dose log is only worth keeping if the gap between a dose and
+ * its effect survives a flight, a DST changeover and a database. So a time is
+ * shown to the user as the local reading they gave (`formatTime12`), and sent
+ * as the instant that reading names (`dayClock`), with `toLocalTime` turning
+ * one back into the other.
  *
  * Month and weekday names are spelled out rather than taken from `Intl`, which
  * is not guaranteed to be on every JS engine this app runs on - and the app is
@@ -87,6 +96,21 @@ export function dayKey(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+/**
+ * The first and last day of the month `date` falls in, as `dayKey()`s.
+ *
+ * Both ends included, which is what the log endpoint's range means: these are
+ * the first and last cells the calendar draws, not a half-open span.
+ */
+export function monthRange(date: Date): { from: string; to: string } {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  return {
+    from: dayKey(new Date(year, month, 1)),
+    to: dayKey(new Date(year, month, daysInMonth(year, month))),
+  };
+}
+
 /** "August 2026" - the calendar's title. */
 export function formatMonthYear(date: Date): string {
   return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
@@ -148,14 +172,6 @@ export function formatTime12(time: TimeOfDay): string {
   return `${hour}:${minute} ${time.hour < 12 ? 'AM' : 'PM'}`;
 }
 
-/** "07:30" - how a time is stored and sent. */
-export function formatTime24(time: TimeOfDay): string {
-  return `${`${time.hour}`.padStart(2, '0')}:${`${time.minute}`.padStart(
-    2,
-    '0',
-  )}`;
-}
-
 /**
  * The day a `dayKey()` names, back as a Date.
  *
@@ -167,10 +183,113 @@ export function parseDayKey(key: string): Date {
   return new Date(year, month - 1, day);
 }
 
-/** "07:00" back to the clock reading it names. */
-export function parseTime24(value: string): TimeOfDay {
-  const [hour, minute] = value.split(':').map(Number);
-  return { hour, minute };
+/** The local clock reading a UTC instant shows on this device. */
+export function toLocalTime(iso: string): TimeOfDay {
+  const at = new Date(iso);
+  return { hour: at.getHours(), minute: at.getMinutes() };
+}
+
+/**
+ * How many days past the day `key` names an instant falls, in local time.
+ *
+ * 0 on the day itself, 1 for a reading that crossed midnight. Rounded rather
+ * than divided exactly, because a DST changeover makes one day of the year 23
+ * hours long and another 25.
+ */
+export function daysAfterDay(key: string, iso: string): number {
+  const from = parseDayKey(key).getTime();
+  const to = startOfDay(new Date(iso)).getTime();
+  return Math.round((to - from) / 86400000);
+}
+
+/**
+ * Minutes east of UTC at the given moment.
+ *
+ * `getTimezoneOffset` counts the other way - the minutes to add to local time
+ * to reach UTC - so the sign is flipped to the one people write down: India is
+ * +330, not -330. Taken for a moment rather than for the zone, since half the
+ * world's offset changes twice a year.
+ */
+export function utcOffsetMinutes(date: Date): number {
+  return -date.getTimezoneOffset();
+}
+
+/**
+ * The IANA zone the device is in - "Asia/Kolkata" - or null when the engine
+ * cannot name one.
+ *
+ * `Intl` is not guaranteed on every JS engine this app runs on, so a missing
+ * one is a null rather than a crash: the offset alongside it still pins every
+ * instant in the log, and only the zone's future DST rules are lost.
+ */
+export function timeZoneName(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stamps a clock reading with the day it belongs to, as a UTC instant.
+ *
+ * A day's readings are handed to one clock in the order they happened, and it
+ * carries the date along for them. It has to, because a day's log runs past
+ * midnight - a dose taken at 11pm wears off the next morning - and by then the
+ * reading alone no longer says which day it is on.
+ *
+ * The rule is that readings only go forwards: one that lands earlier than the
+ * one before it has crossed midnight, and takes the date with it. That is the
+ * only signal there is, and it is the same one a person reading the log down
+ * the page would use.
+ */
+export interface DayClock {
+  (time: TimeOfDay): string;
+  (time: TimeOfDay | null): string | null;
+}
+
+/**
+ * A `DayClock` for the day `key` names.
+ *
+ * `resumeAt` continues a day already part-stamped - the doses pick up from the
+ * wake-up time the morning check recorded - so that a dose before that hour is
+ * read as the small hours of the next day rather than as the same morning.
+ */
+export function dayClock(key: string, resumeAt?: string | null): DayClock {
+  const first = parseDayKey(key);
+  let dayOffset = 0;
+  /** The last reading stamped, as minutes since its own midnight. */
+  let previous = -1;
+
+  if (resumeAt !== undefined && resumeAt !== null) {
+    const at = new Date(resumeAt);
+    dayOffset = daysAfterDay(key, resumeAt);
+    previous = at.getHours() * 60 + at.getMinutes();
+  }
+
+  function stamp(time: TimeOfDay): string;
+  function stamp(time: TimeOfDay | null): string | null;
+  function stamp(time: TimeOfDay | null): string | null {
+    if (time === null) {
+      return null;
+    }
+    const minutes = time.hour * 60 + time.minute;
+    if (minutes < previous) {
+      dayOffset += 1;
+    }
+    previous = minutes;
+
+    const day = addDays(first, dayOffset);
+    return new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      time.hour,
+      time.minute,
+    ).toISOString();
+  }
+
+  return stamp;
 }
 
 /**
