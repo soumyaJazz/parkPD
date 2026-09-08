@@ -11,6 +11,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { isDeadChallenge, requestOtp, verifyOtp } from '../../api';
+import type { OtpChallenge } from '../../api';
+import { showToast } from '../../components/Toast';
+import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { globalStyles, minInset } from '../../theme';
 import { formatPhoneNumber } from '../../utils/validation';
@@ -19,7 +23,6 @@ import { styles } from './OtpScreen.styles';
 type Props = NativeStackScreenProps<RootStackParamList, 'Otp'>;
 
 const OTP_LENGTH = 4;
-const RESEND_SECONDS = 56;
 
 function formatCountdown(totalSeconds: number): string {
   const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
@@ -27,29 +30,76 @@ function formatCountdown(totalSeconds: number): string {
   return `${minutes}:${seconds}`;
 }
 
+/** Whole seconds until an epoch-ms deadline, floored at zero. */
+function secondsUntil(deadline: number): number {
+  return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+}
+
+/**
+ * The line to show for a rejected request. Anything the api layer throws is an
+ * ApiError carrying the server's own copy; `fallback` covers the rest.
+ */
+function errorMessage(thrown: unknown, fallback: string): string {
+  return thrown instanceof Error ? thrown.message : fallback;
+}
+
 function OtpScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { signIn } = useAuth();
   const { flow, method, contact } = route.params;
   const displayContact =
     method === 'phone' ? formatPhoneNumber(contact) : contact;
+
+  // Resending issues a fresh challenge, so this can't stay a route param -
+  // the old challengeId stops being the one the typed code belongs to.
+  const [challenge, setChallenge] = useState<OtpChallenge>({
+    challengeId: route.params.challengeId,
+    expiresAt: route.params.expiresAt,
+    resendAfter: route.params.resendAfter,
+  });
+
+  // The server's own confirmation - kept in state because resending issues a
+  // fresh one, and it is the only place that knows where the code went.
+  const [notice, setNotice] = useState(route.params.notice);
 
   const inputs = useRef<Array<ComponentRef<typeof TextInput> | null>>([]);
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
+  // The challenge is spent the moment the server accepts the code, so once it
+  // has there is nothing left on this screen to submit or resend.
+  const [isVerified, setIsVerified] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    secondsUntil(challenge.resendAfter),
+  );
 
   const isComplete = digits.every(digit => digit !== '');
-  const canResend = secondsLeft === 0;
+  const canSubmit = isComplete && !isVerifying && !isVerified;
+  const canResend = secondsLeft === 0 && !isResending && !isVerified;
+  const buttonLabel = isVerified
+    ? 'Verified'
+    : isVerifying
+      ? 'Verifying...'
+      : 'Continue';
 
-  // Ticks the resend countdown down one second at a time.
+  // Counts down to the server's own cooldown deadline. Each tick recomputes
+  // from the clock rather than subtracting one, so time spent with the app
+  // backgrounded (where timers are throttled) doesn't leave the countdown
+  // running behind the deadline it describes.
   useEffect(() => {
-    if (secondsLeft === 0) {
-      return;
-    }
-    const timer = setTimeout(() => setSecondsLeft(current => current - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [secondsLeft]);
+    setSecondsLeft(secondsUntil(challenge.resendAfter));
+
+    const timer = setInterval(() => {
+      const remaining = secondsUntil(challenge.resendAfter);
+      setSecondsLeft(remaining);
+      if (remaining === 0) {
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [challenge.resendAfter]);
 
   const handleChangeDigit = (text: string, index: number) => {
     let cleaned = text.replace(/\D/g, '');
@@ -89,30 +139,90 @@ function OtpScreen({ navigation, route }: Props) {
     }
   };
 
-  const handleContinue = () => {
-    if (!isComplete || isVerifying) {
+  const handleContinue = async () => {
+    if (!canSubmit) {
       return;
     }
 
-    const code = digits.join('');
     setIsVerifying(true);
+    setError(null);
+    try {
+      // challenge.challengeId, not the route param - a resend replaced it, and
+      // the typed code belongs to whichever challenge was issued last.
+      const { data } = await verifyOtp(
+        challenge.challengeId,
+        digits.join(''),
+        flow,
+      );
+      // No toast on the way in: the screen it lands on is the confirmation,
+      // and a greeting arriving over it says nothing the user didn't just do.
+      setIsVerified(true);
 
-    // TODO: wire up to the OTP verify endpoint for this flow.
-    console.log('verify otp', { flow, method, contact, code });
-    setTimeout(() => setIsVerifying(false), 1200);
+      // Holding the session is the whole navigation. The navigator swaps this
+      // stack out for the app's own the moment a user exists, and reads the
+      // account to decide between profile setup and home - so there is nothing
+      // to reset here, and no way back to a challenge that is already spent.
+      await signIn(data);
+    } catch (verifyError) {
+      const message = errorMessage(
+        verifyError,
+        'Could not verify the code. Please try again.',
+      );
+      showToast(message, undefined, 'error');
+
+      // Expired, spent or locked out: the challenge is gone server-side, so
+      // there is nothing left on this screen to get right. Send them back to
+      // the form they came from to ask for a new code - it still holds the
+      // address they typed, and the toast host is mounted at the app root, so
+      // the server's reason stays on screen through the transition.
+      if (isDeadChallenge(verifyError)) {
+        if (flow === 'signup') {
+          navigation.navigate('SignUp');
+        } else {
+          navigation.navigate('Login');
+        }
+        return;
+      }
+
+      // A wrong guess, then - the code itself is still live. Inline under the
+      // boxes pins the reason to what was typed, and clearing them beats making
+      // the user backspace through four digits that are already known bad.
+      setError(message);
+      setDigits(Array(OTP_LENGTH).fill(''));
+      inputs.current[0]?.focus();
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
-  const handleResend = () => {
+  const handleResend = async () => {
     if (!canResend) {
       return;
     }
 
-    // TODO: ask the backend to send a new code.
-    console.log('resend otp', { flow, method, contact });
-    setDigits(Array(OTP_LENGTH).fill(''));
+    setIsResending(true);
     setError(null);
-    setSecondsLeft(RESEND_SECONDS);
-    inputs.current[0]?.focus();
+    try {
+      // A new challenge replaces the old one outright: the server keeps a
+      // single live code per address, so the previous challengeId is dead.
+      const { data, message } = await requestOtp(contact, flow, method);
+      setChallenge(data);
+      setNotice(message);
+      setDigits(Array(OTP_LENGTH).fill(''));
+      inputs.current[0]?.focus();
+      // The banner reads the same before and after, so the countdown resetting
+      // is the only on-screen change - a popup confirms the resend went out.
+      showToast('Code sent', message);
+    } catch (resendError) {
+      const message = errorMessage(
+        resendError,
+        'Could not send a new code. Please try again.',
+      );
+      setError(message);
+      showToast(message, undefined, 'error');
+    } finally {
+      setIsResending(false);
+    }
   };
 
   return (
@@ -139,7 +249,7 @@ function OtpScreen({ navigation, route }: Props) {
         </TouchableOpacity>
 
         <Text style={globalStyles.title}>Please enter 4-digit code</Text>
-        <Text style={globalStyles.subtext}>We sent a 4-digit code to you at</Text>
+        <Text style={globalStyles.subtext}>{notice}</Text>
 
         <View style={styles.contactRow}>
           <Text style={styles.contact} numberOfLines={1}>
@@ -185,9 +295,14 @@ function OtpScreen({ navigation, route }: Props) {
               Resend code in {formatCountdown(secondsLeft)}
             </Text>
           )}
-          <TouchableOpacity onPress={handleResend} disabled={!canResend}>
+          <TouchableOpacity
+            onPress={() => {
+              handleResend();
+            }}
+            disabled={!canResend}
+          >
             <Text style={[styles.resend, !canResend && styles.resendDisabled]}>
-              Resend
+              {isResending ? 'Sending...' : 'Resend'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -196,13 +311,13 @@ function OtpScreen({ navigation, route }: Props) {
 
         <TouchableOpacity
           style={[globalStyles.button, isComplete && globalStyles.buttonReady]}
-          onPress={handleContinue}
-          disabled={!isComplete || isVerifying}
+          onPress={() => {
+            handleContinue();
+          }}
+          disabled={!canSubmit}
           activeOpacity={0.9}
         >
-          <Text style={globalStyles.buttonText}>
-            {isVerifying ? 'Verifying...' : 'Continue'}
-          </Text>
+          <Text style={globalStyles.buttonText}>{buttonLabel}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

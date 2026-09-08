@@ -24,6 +24,17 @@ export const styles = StyleSheet.create({
     // shadow*/elevation props are deprecated on web.
     boxShadow: '0px 1px 4px rgba(0, 0, 0, 0.06)',
   },
+  // The hint below takes over the gap when a method is unavailable.
+  segmentedWithHint: {
+    marginBottom: spacing.sm,
+  },
+  methodHint: {
+    fontSize: fontSize.caption,
+    color: colors.muted,
+    // sits under the half it refers to, which is the right-hand segment
+    textAlign: 'right',
+    marginBottom: 22,
+  },
   segmentText: {
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
@@ -31,6 +42,9 @@ export const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: colors.text,
+  },
+  segmentTextDisabled: {
+    color: colors.border,
   },
   // Addresses run long, so they get a step down from the shared input size.
   inputEmail: {

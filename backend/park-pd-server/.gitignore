@@ -4,7 +4,9 @@
 /build
 
 # Logs
-logs
+# Anchored: a bare "logs" also matches src/logs/, which kept the whole logs
+# module out of version control.
+/logs
 *.log
 npm-debug.log*
 pnpm-debug.log*
@@ -54,3 +56,7 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Local file-backed stores (accounts, OTP challenges, refresh tokens).
+# Personal data - never commit.
+data/
