@@ -13,6 +13,13 @@ import { Pool, PoolClient } from 'pg';
 export const PG_POOL = 'PG_POOL';
 
 /**
+ * Module-scoped rather than injected: the pool's error listener outlives any
+ * one request and fires from the driver's own callbacks, where there is no
+ * injection context to reach a logger through.
+ */
+const logger = new Logger('Database');
+
+/**
  * Anything a query can be run against.
  *
  * A pool checks out a connection per call and hands it straight back, which is
@@ -109,7 +116,7 @@ export class DatabaseLifecycle implements OnModuleDestroy {
           );
         }
 
-        return new Pool({
+        const pool = new Pool({
           connectionString,
           // Railway's public proxy terminates TLS with a certificate Node does
           // not trust out of the box, so verification is turned off for it.
@@ -125,6 +132,22 @@ export class DatabaseLifecycle implements OnModuleDestroy {
           idleTimeoutMillis: 30_000,
           connectionTimeoutMillis: 10_000,
         });
+
+        // Errors on a connection that is *idle* in the pool - Postgres
+        // restarting, the proxy dropping a quiet connection, a network blip -
+        // surface here rather than on anyone's query, because no query owns
+        // that connection at the time.
+        //
+        // This listener is not optional. 'error' on an EventEmitter with no
+        // listener is rethrown by Node, so without it a routine database
+        // restart takes the whole server down. The pool has already discarded
+        // the connection by the time this runs and will open a fresh one on
+        // demand, so there is nothing here to repair - only to record.
+        pool.on('error', (err) => {
+          logger.error('Idle database client errored', err);
+        });
+
+        return pool;
       },
     },
     DatabaseLifecycle,
