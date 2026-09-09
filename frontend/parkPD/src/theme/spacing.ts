@@ -20,3 +20,14 @@ export const minInset = {
   top: 16,
   bottom: 24,
 } as const;
+
+/**
+ * How wide the app itself is ever drawn.
+ *
+ * The web build is held phone-shaped by `#root { max-width: 480px }` in
+ * `index.html`, and the two have to agree: the layouts here are measured in
+ * points off a known width rather than in percentages, so a width that lies is
+ * a grid that overflows. Native has no such shell, which is what `useAppWidth`
+ * exists to say.
+ */
+export const APP_MAX_WIDTH = 480;

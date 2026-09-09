@@ -23,12 +23,13 @@ export const TIMELINE_INSET = 30;
  *
  * Points, not percentages: a row of squares sized by percentage and taking its
  * height from an `aspectRatio` is the case Yoga measures short - the same trap
- * `MonthCalendar` documents. Which is why `insetX` has to be the truth: the two
- * layouts hold this row at different widths, and sizing from the window alone
- * ran the tiles straight out of the scrolling layout's cards.
+ * `MonthCalendar` documents. Which is why both arguments have to be the truth:
+ * the two layouts hold this row at different widths, and `appWidth` is what the
+ * app is drawn across rather than the browser window it sits in - see
+ * `useAppWidth`. Sized from the window, one tile filled a whole card.
  */
-export function tileMetrics(windowWidth: number, insetX: number) {
-  const available = windowWidth - insetX;
+export function tileMetrics(appWidth: number, insetX: number) {
+  const available = appWidth - insetX;
   const across = (count: number) =>
     Math.max(TARGET, Math.floor((available - spacing.sm * (count - 1)) / count));
   // Five across the whole row against four in the fractions: both carry a

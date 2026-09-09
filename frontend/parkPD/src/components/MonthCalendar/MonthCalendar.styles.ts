@@ -20,11 +20,14 @@ const MARK_GAP = 2;
  * Yoga has to measure a wrapping row, and a cell sized by percentage whose
  * child takes its height from an `aspectRatio` is the case it measures short -
  * on iOS the card then clips at its rounded bounds and the last week of the
- * month, or the legend, is simply not drawn. The screen's width is known, so
- * the arithmetic is done here instead of being left to the layout engine.
+ * month, or the legend, is simply not drawn. The app's width is known, so the
+ * arithmetic is done here instead of being left to the layout engine.
+ *
+ * `appWidth` is what the app is drawn across, which on the web is narrower
+ * than the browser - `useAppWidth`, not `useWindowDimensions`.
  */
-export function gridMetrics(windowWidth: number, insetX: number) {
-  const cellWidth = Math.floor((windowWidth - insetX) / 7);
+export function gridMetrics(appWidth: number, insetX: number) {
+  const cellWidth = Math.floor((appWidth - insetX) / 7);
   // The circle is drawn inside the cell, so two neighbouring days keep some
   // daylight between them while the cell itself stays the tap target.
   const circle = Math.min(cellWidth - 6, TARGET + 2);

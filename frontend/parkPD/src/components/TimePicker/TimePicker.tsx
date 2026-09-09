@@ -7,12 +7,12 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { colors } from '../../theme';
 import { MINUTE_STEP, formatTime12 } from '../../utils/date';
 import type { TimeOfDay } from '../../utils/date';
+import { useAppWidth } from '../../utils/useAppWidth';
 import PmNotice from './PmNotice';
 import { NUMBER, dialMetrics, styles } from './TimePicker.styles';
 
@@ -94,7 +94,7 @@ function TimePicker({
   onSelect,
   onClose,
 }: Props) {
-  const { width } = useWindowDimensions();
+  const width = useAppWidth();
   const { size, center, ring } = dialMetrics(width);
 
   const [hour, setHour] = useState(() => to12Hour(value.hour));

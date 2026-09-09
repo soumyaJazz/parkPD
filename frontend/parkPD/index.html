@@ -22,7 +22,10 @@
       }
 
       /* Keeps the app phone-shaped on desktop instead of stretching a 22px
-         input across a 2000px monitor. */
+         input across a 2000px monitor. This width is also arithmetic the app
+         itself does - the calendar's columns and the tablet tiles are points
+         divided out of it - so it is mirrored as APP_MAX_WIDTH in
+         src/theme/spacing.ts, and the two have to be changed together. */
       #root {
         display: flex;
         flex-direction: column;
