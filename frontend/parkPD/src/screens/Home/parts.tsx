@@ -1,15 +1,10 @@
-import {
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import Icon from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
 import { colors } from '../../theme';
 import type { DayStatus } from '../../types/dailyLog';
 import { formatDayLabel, formatFullDate } from '../../utils/date';
+import { useAppWidth } from '../../utils/useAppWidth';
 import { styles } from './HomeScreen.styles';
 
 /** One of the three figures on the card over the hero. */
@@ -304,7 +299,7 @@ export function MenuDrawer({
   topInset: number;
   bottomInset: number;
 }) {
-  const { width } = useWindowDimensions();
+  const width = useAppWidth();
   // Never the whole width: the dimmed strip beside it is what says the app is
   // still there, and it is one of the two ways back out.
   const panelWidth = Math.min(320, Math.round(width * 0.84));

@@ -22,9 +22,12 @@ export const NUMBER = TARGET;
  * a number has to land on the ring at a size the layout engine never has to
  * measure, or the puck and the hand it sits on disagree by a pixel or two at
  * every angle.
+ *
+ * `appWidth` is what the app is drawn across, not the browser window - the same
+ * distinction `useAppWidth` draws for the grids.
  */
-export function dialMetrics(windowWidth: number) {
-  const card = Math.min(360, windowWidth - spacing.xl * 2);
+export function dialMetrics(appWidth: number) {
+  const card = Math.min(360, appWidth - spacing.xl * 2);
   const inner = card - spacing.lg * 2;
   const size = Math.min(264, inner);
   return {

@@ -1,15 +1,23 @@
-import { Platform } from 'react-native';
+import { environment } from 'parkpd/env';
 
 /**
- * Where the Nest server lives in development.
+ * `parkpd/env` is not a package. It is a stand-in that Metro, Vite and Jest
+ * each rewrite to one of `src/api/env/{local,test,prod}.ts`, chosen by the
+ * `PARKPD_ENV` variable the npm script sets - see `env.config.cjs` for the
+ * shared rules and `package.json` for which script picks which environment.
  *
- * `localhost` on an Android emulator points at the emulator itself, so it needs
- * the host-machine alias instead. iOS simulators and the web build both share
- * the host's loopback. Point this at a real host before shipping anywhere.
+ * Selecting at bundle time rather than branching on `__DEV__` is what lets a
+ * *development* build talk to a *deployed* server: `npm start` and
+ * `npm run start:prod` produce the same kind of build, pointed at different
+ * backends. Keying on `__DEV__` would instead tie the deployed server to
+ * release builds - the one build nobody runs while developing.
  */
-const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 
-export const API_BASE_URL = `http://${DEV_HOST}:8000`;
+/** Origin every request is prefixed with. No trailing slash. */
+export const API_BASE_URL = environment.apiBaseUrl;
+
+/** Which environment this bundle was built for. Useful in bug reports. */
+export const API_ENV_NAME = environment.name;
 
 /** Long enough to cover a cold SMTP handshake, short enough to not look frozen. */
 export const API_TIMEOUT_MS = 15000;

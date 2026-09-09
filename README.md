@@ -13,6 +13,12 @@ parkPD/
 └── frontend/parkPD/          React Native — iOS, Android, web
 ```
 
+Both halves pick their environment with the same variable, `PARKPD_ENV`
+(`local` | `test` | `prod`). **Unset means `local` on both sides**, so nothing
+in this guide needs it. Full script lists:
+[frontend](frontend/parkPD/README.md#scripts) ·
+[backend](backend/park-pd-server/.env.example).
+
 ---
 
 ## 1. Backend (start this first — every platform needs it)
@@ -26,10 +32,12 @@ npm run start:dev    # watch mode, restarts on save
 
 Serves on **http://localhost:8000**.
 
-The frontend picks the right host automatically in
-[`src/api/config.ts`](frontend/parkPD/src/api/config.ts): web and the iOS
-simulator use `localhost:8000`, the Android emulator uses `10.0.2.2:8000`
-(inside the emulator, `localhost` means the emulator itself).
+The frontend picks the right host automatically. Web and the iOS simulator use
+`localhost:8000`; the Android emulator uses `10.0.2.2:8000`, because inside the
+emulator `localhost` means the emulator itself. Both come from
+[`src/api/env/local.ts`](frontend/parkPD/src/api/env/local.ts), which Metro and
+Vite select at build time — see
+[the frontend README](frontend/parkPD/README.md#which-backend-the-app-talks-to).
 
 ---
 
@@ -47,10 +55,18 @@ for UI work — no emulator, no native build.
 
 ## 3. iOS simulator
 
-First clone, and after any native dependency change:
+On a fresh clone, and after any native dependency change:
 
 ```sh
 cd frontend/parkPD
+bundle install                                    # once, installs CocoaPods
+bundle exec pod install --project-directory=ios
+```
+
+Then:
+
+```sh
+npm start            # terminal 1 — Metro (skip if already running)
 npm run ios          # terminal 2 — build + launch simulator
 ```
 
@@ -80,6 +96,24 @@ If the emulator shows a "find and connect to nearby devices" dialog, tap
 ```sh
 adb shell pm grant com.parkpd android.permission.ACCESS_LOCAL_NETWORK
 ```
+
+---
+
+## Pointing the app at a deployed backend
+
+Useful on a physical device, which reaches neither `localhost` nor `10.0.2.2`.
+Restart **Metro** with the environment set — in a debug build the JavaScript is
+served by Metro, so it is that terminal's environment that counts, not the one
+you type `npm run android` in:
+
+```sh
+cd frontend/parkPD
+npm run start:prod   # then npm run ios / npm run android as usual
+npm run web:prod     # web equivalent
+```
+
+A release APK cannot talk to a `local` backend at all — release builds block
+plain HTTP — which is why `build:apk` is prod-only.
 
 ---
 

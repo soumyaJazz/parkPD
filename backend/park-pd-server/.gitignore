@@ -37,12 +37,13 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# dotenv environment variable files
+# dotenv environment variable files.
+# The glob is the one that matters: these hold the database URL, the signing
+# secrets and the SMTP password, so anything shaped like an env file stays out
+# of git by default and .env.example is named back in explicitly.
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
+!.env.example
 
 # temp directory
 .temp

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import Icon from '../Icon';
 import { colors } from '../../theme';
 import { DAY_STATUS_LABEL } from '../../types/dailyLog';
@@ -13,6 +13,7 @@ import {
   formatMonthYear,
   isSameDay,
 } from '../../utils/date';
+import { useAppWidth } from '../../utils/useAppWidth';
 import { gridMetrics, legendMarks, styles } from './MonthCalendar.styles';
 
 type Props = {
@@ -31,9 +32,9 @@ type Props = {
   /** Which days already carry a log, keyed by `dayKey()`. */
   statuses: DayStatusMap;
   /**
-   * Points between the window's edges and this card's grid - the screen's
-   * gutter on both sides plus this card's own padding. The day cells are sized
-   * from it rather than from percentages, so it has to be told the truth.
+   * Points between the app's edges and this card's grid - the screen's gutter
+   * on both sides plus this card's own padding. The day cells are sized from
+   * it rather than from percentages, so it has to be told the truth.
    */
   insetX: number;
 };
@@ -58,7 +59,7 @@ function MonthCalendar({
   statuses,
   insetX,
 }: Props) {
-  const { width } = useWindowDimensions();
+  const width = useAppWidth();
   const { cellWidth, circle, cellHeight } = gridMetrics(width, insetX);
 
   const year = month.getFullYear();

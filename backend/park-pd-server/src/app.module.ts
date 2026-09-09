@@ -9,10 +9,17 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { LogsModule } from './logs/logs.module';
+import { appEnv, envFilePathsFor, environment } from './config';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // `.env.<env>` first, then `.env` - see src/config/app-env.ts. Real
+    // environment variables still win over both, which is what leaves a
+    // Railway deploy (where no file is present) behaving exactly as before.
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: envFilePathsFor(appEnv),
+    }),
     // Global, so every service that stores something can inject the one pool
     // without each module in the tree importing this.
     DatabaseModule,
@@ -30,9 +37,14 @@ import { LogsModule } from './logs/logs.module';
     // an ordinary route is governed by 'ip' and this does nothing. See
     // src/auth/throttle-trackers.ts for why it is a second limit and not a
     // replacement.
+    //
+    // The numbers themselves are per-environment and live in
+    // src/config/environments - a laptop gets limits nothing hits by accident,
+    // while `test` deliberately keeps production's so staging fails the way
+    // production would.
     ThrottlerModule.forRoot([
-      { name: 'ip', ttl: 60_000, limit: 300 },
-      { name: 'identity', ttl: 60_000, limit: 1_000 },
+      { name: 'ip', ...environment.throttle.ip },
+      { name: 'identity', ...environment.throttle.identity },
     ]),
     AuthModule,
     // the global guard below injects UsersService; AuthModule re-exports

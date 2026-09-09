@@ -1,0 +1,5 @@
+# Static hosts serve a file per path; this app has one. Without this a refresh
+# on anything but "/" is a 404 from the host, before the bundle ever loads.
+# Vite copies public/ to the root of dist/, which is where Cloudflare Pages
+# looks for this file.
+/*  /index.html  200

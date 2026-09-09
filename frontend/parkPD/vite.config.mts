@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import envConfig from './env.config.cjs';
 
 /**
  * Web build. The native app is bundled by Metro (`npm start`); this config only
@@ -9,6 +10,16 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
+      /**
+       * Points `parkpd/env` at one of `src/api/env/*.ts`, matching what
+       * `metro.config.js` does for the native builds. Vite has its own `.env`
+       * and `--mode` support, but Metro does not, so the web build follows the
+       * native one rather than the two diverging.
+       */
+      {
+        find: new RegExp(`^${envConfig.ENV_SPECIFIER}$`),
+        replacement: envConfig.envModulePath(),
+      },
       /**
        * Anchored so only the bare `react-native` specifier is swapped. A plain
        * string alias also rewrites deep paths like

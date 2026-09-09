@@ -1,97 +1,156 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# ParkPD frontend
 
-# Getting Started
+React Native 0.87. One codebase, three targets: **iOS**, **Android**, and
+**web** (react-native-web, bundled by Vite instead of Metro).
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+> **Accessibility rules are non-negotiable.** The audience is adults 60+ with
+> vision, motor and cognitive changes. Read [`CLAUDE.md`](../../CLAUDE.md)
+> before writing any UI.
 
-## Step 1: Start Metro
+---
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Start the backend first
 
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
-```
-
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
+Every target calls the API, so nothing below is much use on its own:
 
 ```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+cd ../../backend/park-pd-server
+npm run start:dev          # http://localhost:8000
 ```
 
-### iOS
+---
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+## Which backend the app talks to
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+`PARKPD_ENV` decides, and **unset means `local`** — so the everyday commands
+need no prefix.
+
+| `PARKPD_ENV` | Base URL |
+| --- | --- |
+| unset / `local` | `http://localhost:8000`, or `http://10.0.2.2:8000` on Android |
+| `test` | the staging deployment |
+| `prod` | `https://parkpd-production.up.railway.app` |
+
+`10.0.2.2` is not a typo: inside an Android emulator, `localhost` means the
+emulator itself, and `10.0.2.2` is its alias for the host machine.
+
+The three environments live in [`src/api/env/`](src/api/env/) as ordinary
+committed modules. At build time Metro and Vite each rewrite the `parkpd/env`
+import to exactly one of them, so the others never reach the bundle. The rules
+are shared in [`env.config.cjs`](env.config.cjs); a typo like
+`PARKPD_ENV=production` fails the build rather than silently falling back.
+
+> **The Metro server owns this, not the build command.** In a debug build the
+> JavaScript is served by Metro, so it is the `npm start` terminal whose
+> environment counts. Running `PARKPD_ENV=prod npm run android` against a Metro
+> that started as `local` gets you `local`. Restart Metro instead:
+> `npm run start:prod`.
+
+---
+
+## Web
+
+The fastest loop for UI work — no emulator, no native build.
 
 ```sh
-bundle install
+npm run web
 ```
 
-Then, and every time you update your native dependencies, run:
+Vite dev server on **http://localhost:3000**, opens automatically. Hot reload on
+save.
+
+---
+
+## iOS simulator
+
+On a fresh clone, install CocoaPods itself, then the pods:
 
 ```sh
-bundle exec pod install
+bundle install                       # once, installs CocoaPods
+bundle exec pod install --project-directory=ios
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+Re-run `pod install` after any native dependency change. Then:
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+npm start                            # terminal 1 — Metro
+npm run ios                          # terminal 2 — build + launch
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+Pick a device: `npm run ios -- --simulator="iPhone 17 Pro"`.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+The simulator shares the host's loopback, so `localhost:8000` reaches your
+backend with no extra setup.
 
-## Step 3: Modify your app
+---
 
-Now that you have successfully run the app, let's make changes!
+## Android emulator
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+The AVD already exists and is named **`parkpd`**. Three terminals:
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+```sh
+emulator -avd parkpd &               # terminal 1 — wait for the home screen
+npm start                            # terminal 2 — Metro (shared with iOS)
+npm run android                      # terminal 3 — build + install
+```
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+Check the emulator is actually up before building — `adb devices` must list
+`emulator-5554   device`.
 
-## Congratulations! :tada:
+If a **"find and connect to nearby devices"** dialog appears, tap **Allow**.
+Denying it blocks calls to `10.0.2.2:8000`. To grant it directly:
 
-You've successfully run and modified your React Native App. :partying_face:
+```sh
+adb shell pm grant com.parkpd android.permission.ACCESS_LOCAL_NETWORK
+```
 
-### Now what?
+---
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+## A physical device
 
-# Troubleshooting
+Neither `localhost` nor `10.0.2.2` reaches a real phone. Two options:
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+- **Point it at the deployment** — `npm run start:prod`, then build as usual.
+- **Point it at your laptop** — put your LAN address (`ipconfig getifaddr en0`)
+  in [`src/api/env/local.ts`](src/api/env/local.ts) in place of `DEV_HOST`, with
+  the phone on the same Wi-Fi.
 
-# Learn More
+A **release** APK cannot use `local` at all: release builds merge
+`usesCleartextTraffic="false"`, so plain HTTP is blocked outright. That is why
+there is no `build:apk:local`.
 
-To learn more about React Native, take a look at the following resources:
+---
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+## Scripts
+
+| Command | Target | Environment |
+| --- | --- | --- |
+| `npm start` | Metro (iOS + Android) | local |
+| `npm run start:test` | Metro | test |
+| `npm run start:prod` | Metro | prod |
+| `npm run ios` | iOS simulator | whichever Metro is running |
+| `npm run android` | Android emulator | whichever Metro is running |
+| `npm run web` | Vite dev server, :3000 | local |
+| `npm run web:test` / `web:prod` | Vite dev server | test / prod |
+| `npm run build:web` | web production bundle → `dist/` | prod |
+| `npm run build:web:test` | web production bundle | test |
+| `npm run build:apk` | release APK | prod |
+| `npm run build:apk:test` | release APK | test |
+| `npm test` | Jest | always local |
+| `npm run lint` | ESLint | — |
+
+---
+
+## When something is stuck
+
+```sh
+npm start -- --reset-cache                        # Metro cache
+npm run clean:android                             # Gradle
+cd ios && rm -rf Pods build && bundle exec pod install && cd ..
+
+lsof -nP -iTCP:8081 -sTCP:LISTEN                  # who is holding Metro's port
+lsof -nP -iTCP:3000 -sTCP:LISTEN                  # ...or Vite's
+```
+
+Full reload: **Android** — press <kbd>R</kbd> twice, or <kbd>Cmd ⌘</kbd> +
+<kbd>M</kbd> for the Dev Menu. **iOS** — press <kbd>R</kbd> in the simulator.

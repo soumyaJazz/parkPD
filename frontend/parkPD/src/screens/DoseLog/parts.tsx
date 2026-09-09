@@ -1,4 +1,4 @@
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import Icon from '../../components/Icon';
 import { colors } from '../../theme';
 import type { DoseDraft, DoseFraction, WholeTablets } from '../../types/doseLog';
@@ -10,6 +10,7 @@ import {
   describeDose,
 } from '../../types/doseLog';
 import { ordinal } from '../../utils/date';
+import { useAppWidth } from '../../utils/useAppWidth';
 import { styles, tileMetrics } from './DoseLogScreen.styles';
 
 /** Which dose is being logged. Shared by both layouts' headers. */
@@ -109,10 +110,10 @@ export function TabletPicker({
   dose: DoseDraft;
   onWhole: (whole: WholeTablets | null) => void;
   onFraction: (fraction: DoseFraction | null) => void;
-  /** Points between the window's edges and this row - see `tileMetrics`. */
+  /** Points between the app's edges and this row - see `tileMetrics`. */
   insetX: number;
 }) {
-  const { width } = useWindowDimensions();
+  const width = useAppWidth();
   const tile = tileMetrics(width, insetX);
 
   return (
