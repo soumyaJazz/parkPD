@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { appEnv, environment } from './config';
 
 const logger = new Logger('Bootstrap');
 
@@ -84,6 +85,18 @@ function assertConfig(isProduction: boolean): void {
     logger.warn(rule);
   }
 
+  // MAIL_ENABLED=false makes MailService log the code instead of sending it.
+  // On a laptop that is the point; on a deployed server it means every email
+  // signup silently waits for a code that was only ever written to the logs.
+  // Not fatal - a deploy using OTP_DEV_CODE has no need of a mail provider -
+  // but it is the one failure that looks like nothing at all from outside.
+  if (isProduction && process.env.MAIL_ENABLED !== 'true') {
+    logger.warn(
+      'MAIL_ENABLED is not "true", so no email code will actually be sent. ' +
+        'Codes are written to this log instead.',
+    );
+  }
+
   for (const name of REQUIRED_SECRETS) {
     const value = process.env[name];
     if (!value || value.length < 32) {
@@ -99,9 +112,18 @@ async function bootstrap() {
   const isProduction = process.env.NODE_ENV === 'production';
   assertConfig(isProduction);
 
+  // Which environment resolved, before anything else is logged - every line
+  // after this one is only interpretable if you know which server it came
+  // from, and which env files were in play.
+  logger.log(`Starting in the "${appEnv}" environment`);
+
   // Typed as the Express app because `trust proxy` below is an Express
   // setting, and the generic Nest interface has no way to reach it.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Per-environment, so a deployed instance is not paying to print every
+    // `debug` line a laptop wants. See src/config/environments.
+    logger: [...environment.logLevels],
+  });
 
   // Railway terminates TLS at its edge and forwards on, so the address this
   // process sees on the socket is the proxy's, identical for every caller.

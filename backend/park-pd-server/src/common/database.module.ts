@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
+import { environment } from '../config';
 
 /** Injection token for the one connection pool the whole app shares. */
 export const PG_POOL = 'PG_POOL';
@@ -124,13 +125,12 @@ export class DatabaseLifecycle implements OnModuleDestroy {
           ssl: connectionString.includes('railway.internal')
             ? false
             : { rejectUnauthorized: false },
-          // Comfortably under Postgres's default 100 connections, with room
-          // for more than one instance of this server.
-          max: 10,
-          // A connection that has been idle this long is worth more back in
-          // the pool than held open against a database on another host.
-          idleTimeoutMillis: 30_000,
-          connectionTimeoutMillis: 10_000,
+          // Sizes are per-environment - see src/config/environments. A laptop
+          // and a deployed instance want different ceilings against what may
+          // well be the same database.
+          max: environment.database.poolMax,
+          idleTimeoutMillis: environment.database.idleTimeoutMillis,
+          connectionTimeoutMillis: environment.database.connectionTimeoutMillis,
         });
 
         // Errors on a connection that is *idle* in the pool - Postgres
