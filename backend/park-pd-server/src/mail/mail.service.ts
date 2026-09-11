@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
@@ -76,6 +81,19 @@ export class MailService implements OnModuleInit {
             user: this.configService.get<string>('MAIL_USER'),
             pass: this.configService.get<string>('MAIL_PASS'),
           },
+          // Nodemailer waits indefinitely by default, and `sendOtp` is awaited
+          // before the request returns - so an unreachable mail host does not
+          // fail, it hangs, and takes the whole sign-in request with it. The
+          // client gives up at 15s (API_TIMEOUT_MS) with "the server took too
+          // long", which tells the user nothing and offers them nothing to do.
+          //
+          // These three cover the three ways a mail server goes quiet: never
+          // accepting the connection, accepting it and never speaking, and
+          // speaking once and then stalling mid-exchange. Sized so the worst
+          // case still leaves the client room to receive a real answer.
+          connectionTimeout: 4000,
+          greetingTimeout: 4000,
+          socketTimeout: 8000,
         })
       : null;
   }
@@ -116,16 +134,34 @@ export class MailService implements OnModuleInit {
       return;
     }
 
-    await this.transporter.sendMail({
-      from: this.configService.get<string>('MAIL_FROM'),
-      to: email,
-      subject: `Your ParkPD code is ${otp}`,
-      text:
-        `Here is your ParkPD code: ${otp}\n\n` +
-        `Type this code into the app to continue. ` +
-        `It stops working in ${this.expiryMinutes} minutes.\n\n` +
-        `If you did not ask for this code, you can ignore this email.`,
-      html: otpEmailHtml(otp, this.expiryMinutes),
-    });
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.get<string>('MAIL_FROM'),
+        to: email,
+        subject: `Your ParkPD code is ${otp}`,
+        text:
+          `Here is your ParkPD code: ${otp}\n\n` +
+          `Type this code into the app to continue. ` +
+          `It stops working in ${this.expiryMinutes} minutes.\n\n` +
+          `If you did not ask for this code, you can ignore this email.`,
+        html: otpEmailHtml(otp, this.expiryMinutes),
+      });
+    } catch (err: unknown) {
+      // The provider's own wording - "ECONNREFUSED", "Invalid login" - is for
+      // whoever reads these logs, never for someone waiting on a screen.
+      this.logger.error(
+        `Sending the code to ${email} failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+
+      // 503, not 500: this is a dependency being unreachable, which is usually
+      // temporary, and the sentence says so plainly and gives the one action
+      // that helps. Throwing rather than resolving is deliberate - a silent
+      // success here is a person waiting for a code that was never sent.
+      throw new ServiceUnavailableException(
+        'We could not send your code right now. Please wait a minute and try again.',
+      );
+    }
   }
 }
