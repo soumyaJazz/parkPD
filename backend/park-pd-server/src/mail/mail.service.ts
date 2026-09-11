@@ -155,6 +155,18 @@ export class MailService implements OnModuleInit {
         }`,
       );
 
+      // A rejected credential is the one failure the sentence below describes
+      // wrongly: waiting a minute never fixes a key that no longer exists, so
+      // unless it is called out here the logs read like a passing outage and
+      // the real cause is never looked for.
+      if ((err as { code?: string }).code === 'EAUTH') {
+        this.logger.error(
+          'SMTP rejected our credentials, so no email code can be sent and ' +
+            'retrying will not help. On Resend this means the API key in ' +
+            'MAIL_PASS was deleted or rotated - issue a new one.',
+        );
+      }
+
       // 503, not 500: this is a dependency being unreachable, which is usually
       // temporary, and the sentence says so plainly and gives the one action
       // that helps. Throwing rather than resolving is deliberate - a silent
