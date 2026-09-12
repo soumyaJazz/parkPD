@@ -27,8 +27,19 @@ type Props = {
    * Today, passed in rather than read here. The screen already holds one
    * "today" - the greeting and the logged days are both measured from it - and
    * a second reading of the clock could disagree with it across midnight.
+   *
+   * Marked on the grid but not selectable: see `latest`.
    */
   today: Date;
+  /**
+   * The last day that can be logged - yesterday.
+   *
+   * A day's log runs from waking to the small hours of the next morning, and
+   * asks when each dose wore off. None of that can be answered until the day
+   * is over, so today is drawn like any other day the log has nothing to say
+   * about yet, and opens tomorrow.
+   */
+  latest: Date;
   /** Which days already carry a log, keyed by `dayKey()`. */
   statuses: DayStatusMap;
   /**
@@ -46,9 +57,11 @@ type Props = {
  * size a tinted fill either fights the number for contrast or is too faint to
  * see, and the mark leaves the date itself at full strength.
  *
- * Days ahead of today are drawn but inert - there is nothing to record about a
- * day that hasn't happened, and a tapped-but-refused date would be a worse
- * answer than one that plainly reads as unavailable.
+ * Days past `latest` are drawn but inert - there is nothing to record about a
+ * day that hasn't finished, and a tapped-but-refused date would be a worse
+ * answer than one that plainly reads as unavailable. Today is one of them, and
+ * gets its own wording: "not yet available" is true of next Tuesday but reads
+ * as a fault on the day the user is standing in.
  */
 function MonthCalendar({
   month,
@@ -56,6 +69,7 @@ function MonthCalendar({
   selected,
   onSelect,
   today,
+  latest,
   statuses,
   insetX,
 }: Props) {
@@ -126,7 +140,7 @@ function MonthCalendar({
           const status = statuses[dayKey(date)];
           const isToday = isSameDay(date, today);
           const isSelected = selected !== null && isSameDay(date, selected);
-          const isFuture = date > today;
+          const isClosed = date > latest;
 
           // Read out in full - "Mon, Aug 24" is announced as fragments - and
           // carrying the state in words, since the mark alone doesn't say it.
@@ -137,21 +151,23 @@ function MonthCalendar({
           if (status) {
             spoken.push(DAY_STATUS_LABEL[status].toLowerCase());
           }
-          if (isFuture) {
-            spoken.push('not yet available');
+          if (isClosed) {
+            spoken.push(
+              isToday ? 'you can log today from tomorrow' : 'not yet available',
+            );
           }
 
           return (
             <Pressable
               key={dayKey(date)}
               style={[styles.cell, { width: cellWidth, height: cellHeight }]}
-              // A future day takes no press at all, rather than taking one and
-              // refusing it.
-              onPress={isFuture ? undefined : () => onSelect(date)}
-              disabled={isFuture}
+              // A day that cannot be logged yet takes no press at all, rather
+              // than taking one and refusing it.
+              onPress={isClosed ? undefined : () => onSelect(date)}
+              disabled={isClosed}
               accessibilityRole="button"
               accessibilityLabel={spoken.join(', ')}
-              accessibilityState={{ selected: isSelected, disabled: isFuture }}
+              accessibilityState={{ selected: isSelected, disabled: isClosed }}
             >
               {/* Last style wins, which is the order the states are ranked in:
                   a selected day is filled even when it is also today. */}
@@ -168,7 +184,7 @@ function MonthCalendar({
                     styles.dayText,
                     isToday && styles.dayTextToday,
                     isSelected && styles.dayTextSelected,
-                    isFuture && styles.dayTextFuture,
+                    isClosed && styles.dayTextClosed,
                   ]}
                 >
                   {day}
@@ -198,6 +214,14 @@ function MonthCalendar({
           </View>
         ))}
       </View>
+
+      {/* Said in words, under the grid that enforces it. Today is drawn with
+          its ring like always, so without this the only thing telling anyone
+          why it will not take a press is the press that does nothing. */}
+      <Text style={styles.rule}>
+        You can log any day up to yesterday. Today opens tomorrow, once the day
+        is over and there is a whole day to describe.
+      </Text>
     </View>
   );
 }

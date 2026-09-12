@@ -11,7 +11,13 @@ import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, feedback, minInset, spacing } from '../../theme';
 import type { DayStatusMap } from '../../types/dailyLog';
-import { dayKey, greetingFor, monthRange, startOfDay } from '../../utils/date';
+import {
+  addDays,
+  dayKey,
+  greetingFor,
+  monthRange,
+  startOfDay,
+} from '../../utils/date';
 import type { HomeStat, MenuItem } from './parts';
 import {
   CalendarNotice,
@@ -60,6 +66,15 @@ function HomeScreen({ navigation }: Props) {
 
   const now = useMemo(() => new Date(), []);
   const today = useMemo(() => startOfDay(now), [now]);
+  /**
+   * The last day that can be logged.
+   *
+   * Yesterday, not today. A day's log asks when each dose wore off and how the
+   * night went, which are questions a day still being lived cannot answer -
+   * and a half-day logged as a whole one is worse for the reader of this data
+   * than a day logged a morning late.
+   */
+  const latest = useMemo(() => addDays(today, -1), [today]);
 
   // The month on screen, which isn't the selection: the user can look back
   // through the year without picking anything.
@@ -207,6 +222,7 @@ function HomeScreen({ navigation }: Props) {
             selected={selected}
             onSelect={setSelected}
             today={today}
+            latest={latest}
             statuses={statuses}
             // The screen's gutter on both sides, plus the card's own padding:
             // what is left is what the seven columns are divided out of.

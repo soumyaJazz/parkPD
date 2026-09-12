@@ -86,6 +86,21 @@ export class DoseLogDto {
   })
   tablets_count!: number;
 
+  /**
+   * 0-100: how active the person was in the run-up to swallowing it.
+   *
+   * Required, not optional, and that is the point of it: it is asked beside
+   * "when did you take this dose", before anything is known about whether the
+   * dose worked, so it is one of the three answers every dose carries however
+   * the rest of it went. The peak's `pal_pct` is the other end of the same
+   * measurement, and subtracting one from the other is what says how much the
+   * dose was worth.
+   */
+  @IsInt({ message: 'Enter how active you were before taking this dose.' })
+  @Min(0)
+  @Max(100, { message: 'Activity level must be between 0 and 100.' })
+  pre_med_al_pct!: number;
+
   /** A moment, or `"no-effect"` when the dose never worked. */
   @Matches(instantOr(NO_EFFECT), {
     message: 'Enter when you first felt the medicine working.',
@@ -99,7 +114,12 @@ export class DoseLogDto {
   })
   peak_effect_time?: string | null;
 
-  /** 0-100: how much of the usual activity was possible at the peak. */
+  /**
+   * 0-100: how much of the usual activity was possible at the peak.
+   *
+   * Optional where `pre_med_al_pct` is not, because this one is only asked
+   * of a dose that worked - a dose that never took hold has no peak to rate.
+   */
   @IsOptional()
   @IsInt()
   @Min(0)

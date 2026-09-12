@@ -95,6 +95,10 @@ function doseRows(dose: DoseLog, date: string): Row[] {
   const rows: Row[] = [
     { label: 'Taken at', value: at(dose.dose_time, date) },
     { label: 'Amount', value: describeAmount(dose.tablets_count) },
+    // Above the effect rows on purpose, in the order it was asked: it
+    // describes the time before the tablet, and the peak figure further down
+    // is what it gets read against.
+    { label: 'Activity before dose', value: `${dose.pre_med_al_pct}%` },
     {
       label: 'First effect at',
       value: timeOr(dose.first_effect_time, 'Did not take effect', date),

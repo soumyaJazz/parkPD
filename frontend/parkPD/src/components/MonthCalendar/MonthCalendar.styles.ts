@@ -4,6 +4,7 @@ import {
   colors,
   fontSize,
   fontWeight,
+  lineHeight,
   spacing,
 } from '../../theme';
 
@@ -127,7 +128,8 @@ export const styles = StyleSheet.create({
     color: calendar.selected.fg,
     fontWeight: fontWeight.bold,
   },
-  dayTextFuture: {
+  /** A day the log is not open on yet - today included. */
+  dayTextClosed: {
     color: calendar.future,
   },
   /**
@@ -193,6 +195,22 @@ export const styles = StyleSheet.create({
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
     color: colors.subtext,
+  },
+  /**
+   * Why today takes no press, under the grid.
+   *
+   * Full body size and near-black rather than the legend's muted grey: it is
+   * the rule the grid is enforcing, not a caption for it, and it is the only
+   * thing on the screen that explains a day that will not respond.
+   */
+  rule: {
+    fontSize: fontSize.body,
+    lineHeight: lineHeight.body,
+    color: colors.text,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
   },
 });
 

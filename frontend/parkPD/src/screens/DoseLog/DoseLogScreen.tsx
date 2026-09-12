@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -7,7 +7,13 @@ import { useAuth } from '../../context/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { minInset, screenPadding, spacing } from '../../theme';
 import type { DoseDraft } from '../../types/doseLog';
-import { EMPTY_DOSE, toDoseLogs } from '../../types/doseLog';
+import {
+  EMPTY_DOSE,
+  clearedTimes,
+  doseFloors,
+  reconcileChain,
+  toDoseLogs,
+} from '../../types/doseLog';
 import { toLocalTime } from '../../utils/date';
 import PagedFlow, { DONE, nextStep, validatePage } from './PagedFlow';
 import ScrollFlow, { firstMissing } from './ScrollFlow';
@@ -20,7 +26,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'DoseLog'>;
 type Place = { dose: number; step: number };
 
 /**
- * The nine dose questions, asked once for every dose in the day.
+ * The ten dose questions, asked once for every dose in the day.
  *
  * This screen owns the answers and where the user is in them; how the questions
  * are arranged is the layout's business. Two exist - one question to a screen,
@@ -54,22 +60,57 @@ function DoseLogScreen({ navigation, route }: Props) {
   const dose = doses[here.dose];
   const isScrolling = user?.dose_mode === 'scroll';
 
-  const set = <K extends keyof DoseDraft>(key: K, value: DoseDraft[K]) => {
-    setDoses(previous =>
-      previous.map((entry, index) =>
-        index === here.dose ? { ...entry, [key]: value } : entry,
-      ),
+  /** The clock reading the morning check recorded - where the day's chain starts. */
+  const wakeTime = useMemo(
+    () => toLocalTime(morning.wake_time),
+    [morning.wake_time],
+  );
+
+  /**
+   * One answer, and the day put back in order around it.
+   *
+   * Nothing out of order can be entered - `TimeAnswer` turns those down where
+   * they are given - but an answer already given can be *left* out of order by
+   * going back and moving something above it. So every change re-walks the day
+   * and takes away whatever no longer fits, and says which ones went: an answer
+   * quietly vanishing is worse than the wrong order it was cleared for.
+   */
+  const set = (patch: Partial<DoseDraft>) => {
+    const updated = doses.map((entry, index) =>
+      index === here.dose ? { ...entry, ...patch } : entry,
     );
+    const reconciled = reconcileChain(wakeTime, updated);
+    const cleared = clearedTimes(updated, reconciled);
+
+    setDoses(reconciled);
     setError(null);
     setErrorAt(null);
+
+    if (cleared.length > 0) {
+      showToast(
+        cleared.length === 1
+          ? 'One later time was cleared'
+          : `${cleared.length} later times were cleared`,
+        `They came before the time you just changed, so they no longer fit your day. Please choose them again: ${cleared.join(
+          '; ',
+        )}.`,
+        'warning',
+        // No timer on it: it names answers the user now has to give again, and
+        // reading a list of them takes longer than a notice usually stays up.
+        { durationMs: 0 },
+      );
+    }
   };
 
   const context: DoseContext = {
     dose,
     doseNumber: here.dose + 1,
     medicine: plan.medicine_name,
-    wakeTime: toLocalTime(morning.wake_time),
+    wakeTime,
     previous: here.dose > 0 ? doses[here.dose - 1] : null,
+    // Walked fresh on every render: a floor is only as good as the answers
+    // above it, and those change under this screen constantly.
+    floors: doseFloors(wakeTime, doses, here.dose),
     // What each layout takes out of the window before a question gets its
     // width: the screen's gutter for both, plus the timeline rail and the
     // card's own padding when the questions are laid out as cards.
@@ -129,7 +170,7 @@ function DoseLogScreen({ navigation, route }: Props) {
     setErrorAt(null);
   };
 
-  /** The scrolling layout saves a whole dose at once, so it checks all nine. */
+  /** The scrolling layout saves a whole dose at once, so it checks all ten. */
   const handleSave = () => {
     const missing = firstMissing(dose);
     if (missing !== null) {

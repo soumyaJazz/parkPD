@@ -264,7 +264,7 @@ export function dayClock(key: string, resumeAt?: string | null): DayClock {
   if (resumeAt !== undefined && resumeAt !== null) {
     const at = new Date(resumeAt);
     dayOffset = daysAfterDay(key, resumeAt);
-    previous = at.getHours() * 60 + at.getMinutes();
+    previous = minutesOfDay({ hour: at.getHours(), minute: at.getMinutes() });
   }
 
   function stamp(time: TimeOfDay): string;
@@ -273,7 +273,7 @@ export function dayClock(key: string, resumeAt?: string | null): DayClock {
     if (time === null) {
       return null;
     }
-    const minutes = time.hour * 60 + time.minute;
+    const minutes = minutesOfDay(time);
     if (minutes < previous) {
       dayOffset += 1;
     }
@@ -299,8 +299,113 @@ export function dayClock(key: string, resumeAt?: string | null): DayClock {
  * following morning - so this rolls round rather than overflowing the hour.
  */
 export function addMinutes(time: TimeOfDay, minutes: number): TimeOfDay {
-  const total = (((time.hour * 60 + time.minute + minutes) % 1440) + 1440) % 1440;
+  const total =
+    (((minutesOfDay(time) + minutes) % MINUTES_PER_DAY) + MINUTES_PER_DAY) %
+    MINUTES_PER_DAY;
   return { hour: Math.floor(total / 60), minute: total % 60 };
+}
+
+/**
+ * Ordering a day's readings, when the readings have no dates on them.
+ *
+ * A log is a chain - woke up, took a dose, felt better, peaked, wore off, took
+ * the next one - and every link has to come after the one before it. The
+ * trouble is that a `TimeOfDay` is a reading on a clock and nothing more, so
+ * "2:00 AM after an 11:00 PM dose" and "2:00 AM instead of an 11:00 PM dose"
+ * are the same two numbers. One is an ordinary late night; the other is the
+ * mistake this is here to catch.
+ *
+ * They are told apart by how far the reading has to be carried forward. A day
+ * that ran past midnight carries a few hours; a misread AM/PM or a typo lands
+ * the best part of a day out. So a reading is measured from the one before it
+ * on a timeline that starts at midnight of the day being logged, and accepted
+ * when it either comes later on the same clock face or is close enough behind
+ * to read as the small hours that followed.
+ */
+
+/** Minutes in a day - what a clock reading wraps at. */
+export const MINUTES_PER_DAY = 1440;
+
+/** A reading as minutes since its own midnight. */
+export function minutesOfDay(time: TimeOfDay): number {
+  return time.hour * 60 + time.minute;
+}
+
+/**
+ * How far past the reading before it a reading may be carried and still read
+ * as the same night rather than as a mistake.
+ *
+ * Twelve hours, which is well clear of both sides. The longest thing a log
+ * legitimately carries over midnight is a bedtime dose wearing off the next
+ * morning - the longest wear-off this app even suggests is seven hours. A
+ * reading given the wrong way round, meanwhile, always lands close to a full
+ * day out: an 8 AM dose entered against a 9 AM waking is twenty-three hours
+ * later, not one hour earlier.
+ */
+export const CROSS_MIDNIGHT_LIMIT = 12 * 60;
+
+/** Which day of the log a timeline minute falls on. 0 is the day logged. */
+export function dayOffsetOf(minutes: number): number {
+  return Math.floor(minutes / MINUTES_PER_DAY);
+}
+
+/**
+ * Where a reading lands on the timeline: the first time it comes round at or
+ * after `floor`, which is itself a timeline minute.
+ *
+ * Equal counts as after. A dose taken the moment someone woke up, or an
+ * improvement felt the moment it was taken, is an answer people give.
+ */
+export function resolveAfter(time: TimeOfDay, floor: number): number {
+  const sameDay = dayOffsetOf(floor) * MINUTES_PER_DAY + minutesOfDay(time);
+  return sameDay >= floor ? sameDay : sameDay + MINUTES_PER_DAY;
+}
+
+/**
+ * Whether a reading can honestly be read as coming after `floor`.
+ *
+ * Two ways it can. It is later on the same clock face, in which case the gap
+ * does not matter - a dose fifteen hours after waking is a long day, not a
+ * wrong one. Or it is earlier on the face but near enough behind to be the
+ * small hours after it, which is what `CROSS_MIDNIGHT_LIMIT` draws the line at.
+ */
+export function isInOrder(time: TimeOfDay, floor: number): boolean {
+  const sameDay = dayOffsetOf(floor) * MINUTES_PER_DAY + minutesOfDay(time);
+  return (
+    sameDay >= floor ||
+    sameDay + MINUTES_PER_DAY - floor <= CROSS_MIDNIGHT_LIMIT
+  );
+}
+
+/**
+ * A point on the day's chain: a reading, where it landed, and the words for it.
+ *
+ * The two phrasings are both needed and neither reads as the other. `was`
+ * finishes a sentence saying what the reading already is - "but you woke up at
+ * 7:00 AM" - and `after` finishes one measuring from it - "30 mins after you
+ * woke up".
+ */
+export type TimeFloor = {
+  /** Minutes from midnight of the day logged; past 1440 once it crossed. */
+  minutes: number;
+  time: TimeOfDay;
+  /** Completes "You chose 6:30 AM, but {was} at 7:00 AM". */
+  was: string;
+  /** Completes "30 mins {after}". */
+  after: string;
+};
+
+/**
+ * Why a reading was refused, in the words the user gave the day.
+ *
+ * Says the reading back, says what it clashes with, and says what to do - the
+ * three things an error has to carry when the person reading it is being told
+ * their answer was wrong.
+ */
+export function describeTooEarly(time: TimeOfDay, floor: TimeFloor): string {
+  return `You chose ${formatTime12(time)}, but ${floor.was} at ${formatTime12(
+    floor.time,
+  )}. Please choose ${formatTime12(floor.time)} or later.`;
 }
 
 /**
@@ -318,7 +423,6 @@ export function formatDuration(minutes: number): string {
   }
   return rest === 0 ? hourPart : `${hourPart} ${minutePart}`;
 }
-
 
 /** "1st", "2nd", "3rd", "4th" - how a dose is named in a question. */
 export function ordinal(value: number): string {

@@ -24,9 +24,18 @@ export interface DoseTimestamps {
  * stops those two copies drifting from the day they point at - see the
  * composite foreign key on `dose_logs`.
  */
-export interface DoseLogRecord extends DoseLogDto {
+export interface DoseLogRecord extends Omit<DoseLogDto, 'pre_med_al_pct'> {
   /** This dose row's own identity. */
   id: string;
+  /**
+   * 0-100 before the dose, or null on a dose logged before the question
+   * existed.
+   *
+   * Required on the way in and nullable on the way out, which is the one
+   * honest way round: the answer is asked of every new dose, and no value
+   * could be invented for the rows written before it was.
+   */
+  pre_med_al_pct: number | null;
   /** The day it belongs to. */
   daily_log_id: string;
   /** Whose dose it is. Copied from the day, which took it from the token. */
@@ -55,6 +64,7 @@ const DOSE_COLUMNS = [
   'dose_number',
   'dose_time',
   'tablets_count',
+  'pre_med_al_pct',
   'first_effect_time',
   'first_effect_flag',
   'peak_effect_time',
@@ -74,7 +84,7 @@ const DOSE_COLUMNS = [
 
 const SELECTED = `
   id, daily_log_id, user_id, to_char(log_date, 'YYYY-MM-DD') AS log_date,
-  dose_number, dose_time, tablets_count,
+  dose_number, dose_time, tablets_count, pre_med_al_pct,
   first_effect_time, first_effect_flag,
   peak_effect_time, peak_effect_flag,
   pal_pct, at_pal_dl_affected_flag,
@@ -91,6 +101,7 @@ interface DoseRow {
   dose_time: Date;
   /** `numeric` arrives as a string, so that 2.333 cannot quietly become 2.33. */
   tablets_count: string;
+  pre_med_al_pct: number | null;
   first_effect_time: Date | null;
   first_effect_flag: number;
   peak_effect_time: Date | null;
@@ -144,6 +155,7 @@ function rowToDose(row: DoseRow): DoseLogRecord {
     dose_number: row.dose_number,
     dose_time: row.dose_time.toISOString(),
     tablets_count: Number(row.tablets_count),
+    pre_med_al_pct: row.pre_med_al_pct,
     first_effect_time: readSentinel(
       row.first_effect_time,
       row.first_effect_flag,
@@ -282,6 +294,7 @@ export class DoseLogsService {
       doseNumber,
       dose.dose_time,
       dose.tablets_count,
+      dose.pre_med_al_pct,
       firstEffect,
       firstEffectFlag,
       peak,

@@ -8,6 +8,7 @@ import { ordinal } from '../../utils/date';
 import { DoseBadge } from './parts';
 import type { DoseContext } from './questions';
 import {
+  FIRST_EFFECT_QUESTION,
   QUESTION_COUNT,
   askedQuestions,
   buildQuestions,
@@ -32,11 +33,11 @@ type Props = {
  *
  * The mode for anyone who would rather see the whole thing at once - what the
  * profile questionnaire calls "all on one scrollable page". It asks exactly the
- * same nine questions, in the same words, with the same follow-ups: only the
+ * same ten questions, in the same words, with the same follow-ups: only the
  * arrangement differs, which is why both layouts are built from one definition.
  *
  * One dose is on the page at a time. The next is shown as what it is - a thing
- * that opens once this one is saved - rather than as nine more cards to scroll
+ * that opens once this one is saved - rather than as ten more cards to scroll
  * past on the way to the button.
  */
 function ScrollFlow({
@@ -127,7 +128,9 @@ function ScrollFlow({
           {dose.noFirstEffect && (
             <View style={styles.skipNotice}>
               <Text style={styles.skipNoticeText}>
-                {`You logged no motor improvement for this dose, so questions 4 to ${QUESTION_COUNT} are not asked — there is nothing further to measure this cycle.`}
+                {`You logged no motor improvement for this dose, so questions ${
+                  FIRST_EFFECT_QUESTION + 2
+                } to ${QUESTION_COUNT} are not asked — there is nothing further to measure this cycle.`}
               </Text>
             </View>
           )}

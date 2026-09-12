@@ -5,9 +5,19 @@ import {
   fontSize,
   fontWeight,
   letterSpacing,
+  lineHeight,
   radius,
   spacing,
 } from '../../theme';
+
+/**
+ * A deeper red than `feedback.error.fg` for the one message here that refuses
+ * an answer outright.
+ *
+ * The project holds critical text to AAA - 7:1 - and the shared red lands at
+ * 4.7:1 on the tinted card this sits on. This one clears 7:1 there.
+ */
+const REFUSED_TEXT = '#98271C';
 
 export const styles = StyleSheet.create({
   // "OR USE SUGGESTIONS", with a rule running out either side of it.
@@ -104,6 +114,66 @@ export const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.sm,
     backgroundColor: colors.surface,
+  },
+  /**
+   * The earliest this answer may be, said under the field.
+   *
+   * Only drawn where the suggestions do not already say it - see
+   * `floorWorthSaying`. Near-black rather than the muted grey the hints use,
+   * because this one is a rule the next tap has to obey rather than an aside.
+   */
+  floorHint: {
+    fontSize: fontSize.body,
+    fontWeight: fontWeight.semibold,
+    lineHeight: lineHeight.body,
+    color: colors.text,
+    marginTop: spacing.md,
+  },
+  /**
+   * That the answer given lands after midnight.
+   *
+   * A clock reading cannot say which day it is on, and "2:00 AM" under an
+   * 11:00 PM dose looks like a mistake until something says it isn't. Toned
+   * as information rather than as a warning: a late night is not a problem.
+   */
+  nextDay: {
+    fontSize: fontSize.body,
+    fontWeight: fontWeight.semibold,
+    lineHeight: lineHeight.body,
+    color: feedback.info.fg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.sm,
+    backgroundColor: feedback.info.bg,
+    borderWidth: 1,
+    borderColor: feedback.info.line,
+  },
+  /**
+   * The card that turns an answer down.
+   *
+   * A heading that names the problem over a sentence that says what to do, so
+   * the two are not one block to be read through - and never colour alone: the
+   * words carry it, and the tint only backs them up.
+   */
+  refused: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1.5,
+    borderColor: feedback.error.line,
+    backgroundColor: feedback.error.bg,
+  },
+  refusedTitle: {
+    fontSize: fontSize.button,
+    fontWeight: fontWeight.bold,
+    color: REFUSED_TEXT,
+    marginBottom: spacing.xs,
+  },
+  refusedText: {
+    fontSize: fontSize.body,
+    fontWeight: fontWeight.semibold,
+    lineHeight: lineHeight.body,
+    color: REFUSED_TEXT,
   },
 });
 

@@ -1,15 +1,21 @@
 /**
- * One dose, asked nine times over.
+ * One dose, asked ten times over.
  *
- * The nine questions run once per dose, and each dose's answers seed the next
+ * The ten questions run once per dose, and each dose's answers seed the next
  * one's suggestions - so a day reads as a chain: wake up, dose 1, wear-off,
  * dose 2, wear-off, dose 3. That chain is why a dose is a record of times
  * rather than of durations: an offset is only ever an easier way to pick one.
  */
 import type { Flag } from './questionnaire';
 import type { DailyActivities } from './dailyLog';
-import { dayClock } from '../utils/date';
-import type { DayClock, TimeOfDay } from '../utils/date';
+import {
+  dayClock,
+  isInOrder,
+  minutesOfDay,
+  ordinal,
+  resolveAfter,
+} from '../utils/date';
+import type { DayClock, TimeFloor, TimeOfDay } from '../utils/date';
 
 /** What Q3 and Q8 answer when the thing they ask about never happened. */
 export const NO_EFFECT = 'no-effect';
@@ -107,6 +113,15 @@ export type DoseLog = {
   dose_time: string;
   /** Tablets on this occasion - 1, 1.5, 2.333 and so on. */
   tablets_count: number;
+  /**
+   * 0-100: how active they were in the run-up to taking it.
+   *
+   * One of the three answers every dose carries whatever happened next - it is
+   * asked beside the dose time, before anything is known about whether the
+   * dose worked, so it survives the escape below that ends the dose. `pal_pct`
+   * is the other end of the same measurement, at the peak.
+   */
+  pre_med_al_pct: number;
   /** A time, or `"no-effect"` when the medicine never took hold. */
   first_effect_time: TimeOrNever;
   /**
@@ -141,6 +156,8 @@ export type DoseDraft = {
   whole: WholeTablets | null;
   /** Null is the "None" tile - no part tablet, which is its own answer. */
   fraction: DoseFraction | null;
+  /** Never null - the scale opens on `ACTIVITY_LEVEL.initial`. */
+  preMedActivityLevel: number;
   firstEffect: TimeOfDay | null;
   noFirstEffect: boolean;
   peakEffect: TimeOfDay | null;
@@ -162,6 +179,7 @@ export const EMPTY_DOSE: DoseDraft = {
   doseTime: null,
   whole: null,
   fraction: null,
+  preMedActivityLevel: ACTIVITY_LEVEL.initial,
   firstEffect: null,
   noFirstEffect: false,
   peakEffect: null,
@@ -201,9 +219,214 @@ export function describeDose(draft: DoseDraft): string {
   return `${draft.whole}${FRACTION_GLYPH[draft.fraction]} tablets`;
 }
 
+/**
+ * The day as one chain of times, and the floor each link sits on.
+ *
+ * Every time in a day's log comes after the one before it, and the order is
+ * fixed by what the questions mean rather than by any rule laid on top: you
+ * cannot take a dose before you woke up, feel it working before you took it,
+ * peak before you first felt better, or have it wear off before it peaked. The
+ * next dose then picks the chain up from wherever the last one left it.
+ *
+ * The chain is what makes a floor for each question - the earliest a reading
+ * may be and still be an answer. It is walked rather than looked up because a
+ * link can be missing: a dose that never worked skips the six questions after
+ * it, so the dose after that one is measured from when it was *taken*, which
+ * is the last thing that dose is known to have done. Same for a dose whose
+ * effect never wore off, or never peaked - the floor falls back to the latest
+ * reading there actually is.
+ *
+ * See `isInOrder` for how a reading is measured against a floor, and why a
+ * late-night reading that crosses midnight is not the same as a wrong one.
+ */
+
+/** Where the chain starts: the morning check's wake-up time. */
+export function wakeFloor(wakeTime: TimeOfDay): TimeFloor {
+  return {
+    minutes: minutesOfDay(wakeTime),
+    time: wakeTime,
+    was: 'you woke up',
+    after: 'after you woke up',
+  };
+}
+
+/** The chain moved on by one reading, or left where it is when there isn't one. */
+function step(
+  from: TimeFloor,
+  time: TimeOfDay | null,
+  was: string,
+  after: string,
+): TimeFloor {
+  if (time === null) {
+    return from;
+  }
+  return { minutes: resolveAfter(time, from.minutes), time, was, after };
+}
+
+/** The four floors of one dose, plus where it leaves the chain for the next. */
+export type DoseFloors = {
+  doseTime: TimeFloor;
+  firstEffect: TimeFloor;
+  peakEffect: TimeFloor;
+  wearOff: TimeFloor;
+  /** What the dose after this one is measured from. */
+  end: TimeFloor;
+};
+
+/**
+ * One dose's floors, given where the chain stood when it began.
+ *
+ * Each floor is the latest reading known before it, so an unanswered or
+ * escaped question is stepped over rather than leaving a gap: with no first
+ * improvement recorded, the peak is still known to come after the dose.
+ */
+export function floorsForDose(
+  from: TimeFloor,
+  dose: DoseDraft,
+  doseNumber: number,
+): DoseFloors {
+  const name = `your ${ordinal(doseNumber)} dose`;
+  const taken = step(from, dose.doseTime, `you took ${name}`, `after ${name}`);
+
+  // No motor improvement ends the dose: the questions below it were never put,
+  // so the chain leaves this dose at the moment it was swallowed.
+  if (dose.noFirstEffect) {
+    return {
+      doseTime: from,
+      firstEffect: taken,
+      peakEffect: taken,
+      wearOff: taken,
+      end: taken,
+    };
+  }
+
+  const first = step(
+    taken,
+    dose.firstEffect,
+    'you first felt better',
+    'after you first felt better',
+  );
+  const peak = step(
+    first,
+    dose.noPeakEffect ? null : dose.peakEffect,
+    'the medicine was at its best',
+    'after the peak effect',
+  );
+  const wore = step(
+    peak,
+    dose.noWearOff ? null : dose.wearOff,
+    'your symptoms started returning',
+    'after your symptoms started returning',
+  );
+
+  return {
+    doseTime: from,
+    firstEffect: taken,
+    peakEffect: first,
+    wearOff: peak,
+    end: wore,
+  };
+}
+
+/**
+ * The floors for the dose at `index`, walked from the wake-up time through
+ * every dose before it.
+ */
+export function doseFloors(
+  wakeTime: TimeOfDay,
+  doses: DoseDraft[],
+  index: number,
+): DoseFloors {
+  let from = wakeFloor(wakeTime);
+  for (let before = 0; before < index; before++) {
+    from = floorsForDose(from, doses[before], before + 1).end;
+  }
+  return floorsForDose(from, doses[index], index + 1);
+}
+
+/** The four questions in a dose that ask for a time, in the order they run. */
+export const DOSE_TIME_KEYS = [
+  'doseTime',
+  'firstEffect',
+  'peakEffect',
+  'wearOff',
+] as const;
+
+export type DoseTimeKey = (typeof DOSE_TIME_KEYS)[number];
+
+/** How each of the four is named when it has to be said it was cleared. */
+export const DOSE_TIME_LABEL: Record<DoseTimeKey, string> = {
+  doseTime: 'the dose time',
+  firstEffect: 'the first improvement',
+  peakEffect: 'the peak effect',
+  wearOff: 'when symptoms returned',
+};
+
+/**
+ * The day's doses with any time the chain has overtaken cleared.
+ *
+ * Answers are only ever refused as they are given, so nothing can be entered
+ * out of order - but an answer already given can be *left* out of order by
+ * going back and changing something above it. Moving a dose from 8 AM to 11 AM
+ * does not make the 8:30 AM improvement it caused wrong so much as impossible,
+ * and the honest thing is to take it away and ask again rather than to keep a
+ * chain that no longer describes a day.
+ *
+ * Only what actually clashes is cleared: a small change usually leaves
+ * everything below it standing.
+ */
+export function reconcileChain(
+  wakeTime: TimeOfDay,
+  doses: DoseDraft[],
+): DoseDraft[] {
+  let from = wakeFloor(wakeTime);
+
+  return doses.map((dose, index) => {
+    let kept = dose;
+    let floors = floorsForDose(from, kept, index + 1);
+
+    for (const key of DOSE_TIME_KEYS) {
+      const time = kept[key];
+      if (time !== null && !isInOrder(time, floors[key].minutes)) {
+        kept = { ...kept, [key]: null };
+        // The chain below this reading was measured against it, so the rest of
+        // the dose has to be re-walked before the next key is judged.
+        floors = floorsForDose(from, kept, index + 1);
+      }
+    }
+
+    from = floors.end;
+    return kept;
+  });
+}
+
+/**
+ * Which times `reconcileChain` took away, named for saying so out loud.
+ *
+ * "Dose 2's peak effect" rather than a count: a notice that says a number of
+ * answers were cleared leaves the user hunting for which.
+ */
+export function clearedTimes(
+  before: DoseDraft[],
+  after: DoseDraft[],
+): string[] {
+  const names: string[] = [];
+  before.forEach((dose, index) => {
+    for (const key of DOSE_TIME_KEYS) {
+      if (dose[key] !== null && after[index][key] === null) {
+        names.push(`${ordinal(index + 1)} dose — ${DOSE_TIME_LABEL[key]}`);
+      }
+    }
+  });
+  return names;
+}
+
 /** The dyskinesia span in minutes, with the two fields added together. */
 export function dyskinesiaMinutes(draft: DoseDraft): number {
-  return Number(draft.dyskinesiaHours || 0) * 60 + Number(draft.dyskinesiaMinutes || 0);
+  return (
+    Number(draft.dyskinesiaHours || 0) * 60 +
+    Number(draft.dyskinesiaMinutes || 0)
+  );
 }
 
 /** 0 or 1, which is how every yes/no in this log is stored. */
@@ -263,6 +486,10 @@ function toDoseLog(draft: DoseDraft, clock: DayClock): DoseLog {
     return {
       dose_time: doseTime,
       tablets_count: doseAmount(draft),
+      // Kept, unlike everything below it: the question was asked and answered
+      // before the medicine had done anything, so a dose that never worked
+      // still has an activity level it never worked on.
+      pre_med_al_pct: draft.preMedActivityLevel,
       first_effect_time: NO_EFFECT,
       peak_effect_time: null,
       pal_pct: null,
@@ -289,6 +516,7 @@ function toDoseLog(draft: DoseDraft, clock: DayClock): DoseLog {
   return {
     dose_time: doseTime,
     tablets_count: doseAmount(draft),
+    pre_med_al_pct: draft.preMedActivityLevel,
     first_effect_time: firstEffect,
     peak_effect_time: peakEffect,
     pal_pct: draft.activityLevel,

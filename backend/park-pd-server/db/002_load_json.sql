@@ -131,6 +131,10 @@ ON CONFLICT (id) DO NOTHING;
 -- the schema keeps. An absent or JSON-null field means the question was never
 -- reached, and both parts stay NULL.
 --
+-- pre_med_al_pct arrives as NULL on any dose exported before that question
+-- existed, which is what an absent key casts to and what the column is meant to
+-- hold for those rows - see db/004.
+--
 -- log_date is not in the dose file. It is taken from the day the dose points
 -- at, which is also what dose_logs_day_fk checks it against. The join accepts
 -- either link, because the file on disk carries daily_log_id while the current
@@ -138,7 +142,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ---------------------------------------------------------------------------
 INSERT INTO dose_logs (
   id, daily_log_id, user_id, log_date, dose_number,
-  dose_time, tablets_count,
+  dose_time, tablets_count, pre_med_al_pct,
   first_effect_time, first_effect_flag,
   peak_effect_time, peak_effect_flag,
   pal_pct, at_pal_dl_affected_flag,
@@ -154,6 +158,7 @@ SELECT
   (x->>'dose_number')::smallint,
   (x->>'dose_time')::timestamptz,
   (x->>'tablets_count')::numeric,
+  (x->>'pre_med_al_pct')::smallint,
   CASE WHEN x->>'first_effect_time' <> 'no-effect'
        THEN (x->>'first_effect_time')::timestamptz END,
   CASE WHEN x->>'first_effect_time' = 'no-effect' THEN 0 ELSE 1 END,

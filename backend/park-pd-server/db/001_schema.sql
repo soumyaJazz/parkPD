@@ -277,6 +277,12 @@ CREATE INDEX daily_logs_user_recent_idx ON daily_logs (user_id, log_date DESC);
 -- The pair costs one mapping step in the service and keeps "median minutes to
 -- first effect" a plain SQL query.
 --
+-- Three answers are asked of every dose however it went - dose_time,
+-- tablets_count and pre_med_al_pct - because all three are known before the
+-- dose has done anything. Everything below first_effect_flag describes a period
+-- that a dose which never worked did not have, and is NULL on those rows. See
+-- dose_logs_no_effect_is_silent, which lists exactly which.
+--
 -- user_id and log_date are denormalised from the day so a dose row is legible
 -- on its own and the common "this person doses on this date" read needs no
 -- join. dose_logs_day_fk is what stops the copies ever drifting, and it is why
@@ -298,6 +304,7 @@ CREATE TABLE dose_logs (
   dose_time                   timestamptz  NOT NULL,
   tablets_count               numeric(4,3) NOT NULL
                                            CHECK (tablets_count BETWEEN 0.25 AND 4.5),
+  pre_med_al_pct              pct,
   first_effect_time           timestamptz,
   first_effect_flag           flag         NOT NULL,
   peak_effect_time            timestamptz,
@@ -389,8 +396,10 @@ COMMENT ON COLUMN dose_logs.first_effect_flag IS
   '1 = a first-effect time was recorded. 0 = the dose never worked, which the wire sends as the word no-effect.';
 COMMENT ON COLUMN dose_logs.peak_effect_flag IS
   '1 = a peak time was recorded. 0 = the wire sent no-effect. NULL = never asked, because the dose never worked.';
+COMMENT ON COLUMN dose_logs.pre_med_al_pct IS
+  'How active the person was in the run-up to swallowing it, 0 to 100. Asked beside the dose time, before anything is known about whether the dose worked, so it is recorded even on a dose that never did. NULL only on rows written before the question existed - see db/004.';
 COMMENT ON COLUMN dose_logs.pal_pct IS
-  'How much of the usual activity was possible at the peak, 0 to 100.';
+  'How much of the usual activity was possible at the peak, 0 to 100. The other end of pre_med_al_pct: the difference between the two is what says how much the dose was worth.';
 COMMENT ON COLUMN dose_logs.dysky_duration IS
   'Minutes of involuntary movement. Only asked when dysky_flag is 1.';
 COMMENT ON COLUMN dose_logs.med_wear_off_flag IS

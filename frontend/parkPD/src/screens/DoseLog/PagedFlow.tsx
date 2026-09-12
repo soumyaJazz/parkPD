@@ -17,27 +17,43 @@ import { styles } from './DoseLogScreen.styles';
 /**
  * Which questions share a screen.
  *
- * Almost all of them get one to themselves: they are long, several need a
- * paragraph of explanation before they can be answered, and one opens three
- * more underneath it. Q5 and Q6 are the exception - both are about the same
- * peak period, and the second reads as a follow-up to the first rather than a
- * new subject, so splitting them would cost the reader the context.
+ * Most of them get one to themselves: they are long, several need a paragraph
+ * of explanation before they can be answered, and one opens three more
+ * underneath it. Two pairs are the exception, and for the same reason both
+ * times - the second question reads as a follow-up to the first rather than as
+ * a new subject, so splitting them would cost the reader the context.
+ *
+ * Q1 and Q2 are one pair: how active you were "just before this dose" is a
+ * window that ends at the time named directly above it. Q6 and Q7 are the
+ * other: both are about the same peak period.
  */
 const PAGES: ReadonlyArray<readonly number[]> = [
-  [0],
-  [1],
+  [0, 1],
   [2],
   [3],
-  [4, 5],
-  [6],
+  [4],
+  [5, 6],
   [7],
   [8],
+  [9],
 ];
 
 /** The card that closes the dose sits one past the last page. */
 export const DONE = PAGES.length;
 
-/** Where in the nine a page starts and ends, for "Questions 5 and 6 of 9". */
+/**
+ * The page carrying the question that can end a dose early.
+ *
+ * Looked up rather than written down. A page is not a question - two of them
+ * hold a pair - so the two numberings only ever agreed by accident, and they
+ * stopped agreeing the moment a question was added above this one. Deriving it
+ * means the layout above is the only place that has to be right.
+ */
+const FIRST_EFFECT_PAGE = PAGES.findIndex(page =>
+  page.includes(FIRST_EFFECT_QUESTION),
+);
+
+/** Where in the ten a page starts and ends, for "Questions 6 and 7 of 10". */
 function pageLabel(page: readonly number[]): string {
   if (page.length === 1) {
     return `Question ${page[0] + 1} of ${QUESTION_COUNT}`;
@@ -50,7 +66,7 @@ function pageLabel(page: readonly number[]): string {
 
 /** The page after this one, or the closing card when the dose ends here. */
 export function nextStep(step: number, dose: DoseDraft): number {
-  if (step === FIRST_EFFECT_QUESTION && dose.noFirstEffect) {
+  if (step === FIRST_EFFECT_PAGE && dose.noFirstEffect) {
     return DONE;
   }
   return Math.min(step + 1, DONE);

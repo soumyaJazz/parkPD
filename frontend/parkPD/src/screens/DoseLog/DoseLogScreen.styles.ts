@@ -309,7 +309,7 @@ export const styles = StyleSheet.create({
 /**
  * The scrolling layout: every question of a dose as a card on one timeline.
  *
- * A card per question rather than one long column, because a page of nine
+ * A card per question rather than one long column, because a page of ten
  * questions with nothing between them is a wall - the cards and the numbered
  * dots beside them are what let a reader find their place again after looking
  * away.
@@ -474,7 +474,7 @@ export const scrollStyles = StyleSheet.create({
     lineHeight: lineHeight.body,
   },
   // Outside the scroll: the one action this screen is for shouldn't be
-  // somewhere you have to reach the bottom of nine questions to find.
+  // somewhere you have to reach the bottom of ten questions to find.
   saveBar: {
     paddingHorizontal: screenPadding,
     paddingTop: spacing.md,

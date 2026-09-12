@@ -40,7 +40,7 @@ export function DoseHeader({
 }: {
   dose: number;
   totalDoses: number;
-  /** How many of the nine this page reaches. */
+  /** How many of the ten this page reaches. */
   answered: number;
   totalQuestions: number;
   /** What the bar is showing; null once the dose is done. */

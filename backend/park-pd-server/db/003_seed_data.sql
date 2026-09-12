@@ -10,6 +10,10 @@
 --
 -- Regenerate after the JSON files change, rather than editing by hand.
 --
+-- The dose inserts below name no pre_med_al_pct: these rows were logged
+-- before that question was asked, and NULL is what the column is meant to hold
+-- for them - see db/004.
+--
 -- Formatting rules are the same as 001 - see the note at the top of that file.
 -- ============================================================================
 

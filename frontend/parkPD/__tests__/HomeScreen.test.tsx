@@ -211,8 +211,38 @@ describe('the calendar, on a fixed Monday morning', () => {
     const renderer = await render();
 
     expect(
-      findPressable(renderer.root, 'Tuesday, August 25, 2026, not yet available'),
+      findPressable(
+        renderer.root,
+        'Tuesday, August 25, 2026, not yet available',
+      ),
     ).toBeUndefined();
+  });
+
+  /**
+   * A day still being lived cannot answer when its doses wore off or how the
+   * night went, so the log stops at yesterday - and the reason is on screen,
+   * because a date that quietly ignores a tap is the worst way to say it.
+   */
+  test('today takes no press either, and the screen says why', async () => {
+    const renderer = await render();
+
+    const label =
+      'Monday, August 24, 2026, today, you can log today from tomorrow';
+
+    // Drawn and named - so the assertion below is about the press being gone,
+    // not about the label having been spelled differently.
+    expect(shows(renderer, label)).toBe(true);
+    expect(findPressable(renderer.root, label)).toBeUndefined();
+    expect(shows(renderer, 'You can log any day up to yesterday')).toBe(true);
+  });
+
+  test('yesterday is still the day nearest to hand', async () => {
+    const renderer = await render();
+
+    await press(renderer.root, 'Sunday, August 23, 2026, logged');
+
+    expect(shows(renderer, 'Sun, Aug 23')).toBe(true);
+    expect(shows(renderer, 'Log Day')).toBe(true);
   });
 
   test('the month arrows roll the year over at January', async () => {
