@@ -43,6 +43,42 @@ export const feedback = {
 } as const;
 
 /**
+ * The three states a stretch of the day can be in, on the Insights chart.
+ *
+ * Two shades of each, because the same green cannot do both jobs. `line` is
+ * used for strokes and icons, where 3:1 is the bar - the shared `feedback`
+ * greens and ambers clear that. `text` is the darker one, for the figures and
+ * the words beside them, where the bar is 4.5:1 and `feedback.success.fg`
+ * (4.35:1) and `feedback.warning.fg` (3.64:1) both fall short of it. Every
+ * `text` here clears 5.3:1 on white, on `surface` and on its own `bg`.
+ *
+ * Colour is never the signal on its own - see `STATE_COPY` and `STATE_DASH` in
+ * `screens/Insights/chart.ts`, which pair each state with a word, an icon and a
+ * line pattern. These are what that pairing is drawn in.
+ */
+export const activity = {
+  on: { line: '#1B8A5A', text: '#15704A', bg: '#EAFBF3', border: '#B9EED4' },
+  transition: {
+    line: '#B7791F',
+    text: '#8A5A00',
+    bg: '#FFF8E8',
+    border: '#F5DFA0',
+  },
+  off: { line: '#C4392B', text: '#A32A1E', bg: '#FDEEEC', border: '#F5C4BC' },
+  /**
+   * The stretches with nothing recorded in them - the gap a dose leaves when
+   * its peak was never noted, and the time before the first dose. Grey and
+   * dotted, so it reads as absence rather than as a fourth state.
+   */
+  unrecorded: {
+    line: '#8A8A8E',
+    text: '#5A5A5E',
+    bg: '#F0F2FA',
+    border: '#DCDEEB',
+  },
+} as const;
+
+/**
  * The day-cell states in the log calendar.
  *
  * Logged and in-progress are told apart by shape as well as hue - a filled dot

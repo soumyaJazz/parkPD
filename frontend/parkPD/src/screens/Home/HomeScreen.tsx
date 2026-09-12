@@ -165,12 +165,18 @@ function HomeScreen({ navigation }: Props) {
       setIsConfirming(true);
       return;
     }
+    if (item.key === 'insights') {
+      // No day is passed. The screen opens on the last day that was logged,
+      // and which day that is only the server knows - see `screens/Insights`.
+      navigation.navigate('Insights');
+      return;
+    }
     // Home is where the menu was opened from, so closing it is the whole move.
     if (item.key === 'home') {
       return;
     }
-    // TODO(sections): Medications, Insights and Reminders are listed because
-    // they are where this is going; until they exist the press still answers.
+    // TODO(sections): Medications and Reminders are listed because they are
+    // where this is going; until they exist the press still answers.
     showToast(
       `${item.label} is not ready yet`,
       'This part of parkPD is still being built.',

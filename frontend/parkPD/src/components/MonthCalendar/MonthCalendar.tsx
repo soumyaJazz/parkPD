@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import Icon from '../Icon';
 import { colors } from '../../theme';
 import { DAY_STATUS_LABEL } from '../../types/dailyLog';
-import type { DayStatusMap } from '../../types/dailyLog';
+import type { DayStatus, DayStatusMap } from '../../types/dailyLog';
 import {
   WEEKDAY_INITIALS,
   addMonths,
@@ -43,6 +43,16 @@ type Props = {
   /** Which days already carry a log, keyed by `dayKey()`. */
   statuses: DayStatusMap;
   /**
+   * Days to leave inert beyond the ones after `latest`, and why.
+   *
+   * Returns the reason a day cannot be pressed, in the words a screen reader
+   * should say, or null when it can. Absent means every day up to `latest`
+   * takes a press - which is what the log screen wants, since any past day can
+   * be logged. The insights screen wants the opposite: only a day that already
+   * carries a log has anything to show.
+   */
+  unavailable?: (date: Date, status?: DayStatus) => string | null;
+  /**
    * Points between the app's edges and this card's grid - the screen's gutter
    * on both sides plus this card's own padding. The day cells are sized from
    * it rather than from percentages, so it has to be told the truth.
@@ -71,6 +81,7 @@ function MonthCalendar({
   today,
   latest,
   statuses,
+  unavailable,
   insetX,
 }: Props) {
   const width = useAppWidth();
@@ -97,7 +108,10 @@ function MonthCalendar({
         {/* Stepping past January or December rolls the year over, because
             `new Date(year, -1, 1)` is December of the year before. */}
         <Pressable
-          style={({ pressed }) => [styles.arrow, pressed && styles.arrowPressed]}
+          style={({ pressed }) => [
+            styles.arrow,
+            pressed && styles.arrowPressed,
+          ]}
           onPress={() => onMonthChange(addMonths(month, -1))}
           accessibilityRole="button"
           accessibilityLabel="Previous month"
@@ -108,7 +122,10 @@ function MonthCalendar({
         <Text style={styles.title}>{formatMonthYear(month)}</Text>
 
         <Pressable
-          style={({ pressed }) => [styles.arrow, pressed && styles.arrowPressed]}
+          style={({ pressed }) => [
+            styles.arrow,
+            pressed && styles.arrowPressed,
+          ]}
           onPress={() => onMonthChange(addMonths(month, 1))}
           accessibilityRole="button"
           accessibilityLabel="Next month"
@@ -140,7 +157,15 @@ function MonthCalendar({
           const status = statuses[dayKey(date)];
           const isToday = isSameDay(date, today);
           const isSelected = selected !== null && isSameDay(date, selected);
-          const isClosed = date > latest;
+          // Past `latest` first, because "not yet available" is the truer
+          // reason for a day that also happens to carry no log.
+          const closedBecause =
+            date > latest
+              ? isToday
+                ? 'you can log today from tomorrow'
+                : 'not yet available'
+              : unavailable?.(date, status) ?? null;
+          const isClosed = closedBecause !== null;
 
           // Read out in full - "Mon, Aug 24" is announced as fragments - and
           // carrying the state in words, since the mark alone doesn't say it.
@@ -151,10 +176,8 @@ function MonthCalendar({
           if (status) {
             spoken.push(DAY_STATUS_LABEL[status].toLowerCase());
           }
-          if (isClosed) {
-            spoken.push(
-              isToday ? 'you can log today from tomorrow' : 'not yet available',
-            );
+          if (closedBecause !== null) {
+            spoken.push(closedBecause);
           }
 
           return (

@@ -126,6 +126,25 @@ export const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
+  /**
+   * Stands in for the peak questions a "no motor improvement" answer takes off
+   * this page. They share a screen with the answer that removes them, so they
+   * go while the user is looking at them - something has to say why.
+   */
+  skipNotice: {
+    marginTop: spacing.xxl,
+    padding: spacing.lg,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: feedback.error.line,
+    backgroundColor: feedback.error.bg,
+  },
+  skipNoticeText: {
+    fontSize: fontSize.body,
+    fontWeight: fontWeight.semibold,
+    color: feedback.error.fg,
+    lineHeight: lineHeight.body,
+  },
   error: {
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
@@ -255,6 +274,48 @@ export const styles = StyleSheet.create({
     color: colors.subtext,
     lineHeight: lineHeight.body,
     textAlign: 'center',
+  },
+
+  // --- The strip that says the page is about to move itself on --------------
+  /**
+   * Sits above the footer, so the sentence and the way out of it are next to
+   * the buttons the user is already looking at rather than back up the page.
+   */
+  autoAdvance: {
+    gap: spacing.md,
+    paddingHorizontal: screenPadding,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1.5,
+    borderTopColor: feedback.info.line,
+    backgroundColor: feedback.info.bg,
+  },
+  autoAdvanceText: {
+    fontSize: fontSize.button,
+    fontWeight: fontWeight.semibold,
+    color: colors.text,
+    lineHeight: lineHeight.body,
+  },
+  /**
+   * Outlined and only as wide as its label: Continue is the page's one primary
+   * action, and this is the way out of something the page started on its own.
+   */
+  stay: {
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    minHeight: TARGET,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  stayPressed: {
+    backgroundColor: colors.surface,
+  },
+  stayText: {
+    fontSize: fontSize.button,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
   },
 
   // --- Footer ---------------------------------------------------------------

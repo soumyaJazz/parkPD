@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { User } from '../users/users.service';
 import { CreateDailyLogDto } from './dto/create-daily-log.dto';
+import { DayInsightsDto } from './dto/day-insights.dto';
 import { ListLogsDto } from './dto/list-logs.dto';
 import { LogsService } from './logs.service';
 
@@ -39,5 +40,22 @@ export class LogsController {
   @Get()
   listDayStatuses(@Query() query: ListLogsDto, @CurrentUser() user: User) {
     return this.logsService.listDayStatuses(user.id, query);
+  }
+
+  /**
+   * `GET /logs/insights` - one day's activity, as the line the chart draws and
+   * the minutes spent on, in transition and off.
+   *
+   * `?date=2026-09-11` asks for a particular day. Left off, it answers with the
+   * last day this account logged, which is what the Insights screen opens on:
+   * the client cannot know which day that is without asking for the month first
+   * and then asking again, and the server can say it in one.
+   *
+   * A fixed path segment, so it can never be mistaken for a day: `/logs/:date`
+   * would swallow `/logs/insights` as a date named "insights".
+   */
+  @Get('insights')
+  getDayInsights(@Query() query: DayInsightsDto, @CurrentUser() user: User) {
+    return this.logsService.getDayInsights(user.id, query);
   }
 }

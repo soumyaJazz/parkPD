@@ -220,6 +220,22 @@ export function buildQuestions(ctx: DoseContext): QuestionDef[] {
       : `Dose taken at ${formatTime12(dose.doseTime)}`;
 
   /**
+   * What the peak question is counted from, said in the subtitle the way the
+   * dose question says its own anchor.
+   *
+   * The peak is measured from the first improvement rather than from the dose,
+   * so this names that time instead of the dose time - and when the question
+   * above it has not been answered yet, it says so. The two share a page, so
+   * "the question above" is one the reader can see.
+   */
+  const firstFeltAt =
+    dose.firstEffect === null
+      ? 'Answer the question above first, and the suggestions here will count from your answer.'
+      : `You first felt better at ${formatTime12(
+          dose.firstEffect,
+        )} — pick how long after that the medicine was at its best.`;
+
+  /**
    * The window the pre-dose question is asking about, named by its end.
    *
    * It sits on the same page as the dose time in the paged layout, so it says
@@ -352,17 +368,21 @@ export function buildQuestions(ctx: DoseContext): QuestionDef[] {
     {
       title:
         'How long did it take to feel the maximum improvement (peak effect)?',
-      subtitle: takenAt,
+      subtitle: firstFeltAt,
       explainer:
         'Peak effect is when the medicine is working at its absolute best — movements are smoothest, stiffness is least, and you feel most functional. This usually comes after the first improvement and before symptoms start returning.',
       body: timeQuestion(
         dose.peakEffect,
         time => set({ peakEffect: time }),
         'Peak effect',
-        dose.doseTime,
-        `after taking ${medicine}`,
+        // The first improvement, not the dose. The gap someone can actually
+        // report is the one between starting to feel better and feeling best;
+        // counted from the dose, every tile would be a sum they have to undo
+        // against the answer sitting directly above this one.
+        dose.firstEffect,
+        `after the first improvement from ${medicine}`,
         PEAK_EFFECT_OFFSETS,
-        'Choose the time on the clock above.',
+        'Once you answer the question above, the suggestions here will count from it. You can still choose this time on the clock above.',
         floors.peakEffect,
         {
           label: 'No peak improvement',

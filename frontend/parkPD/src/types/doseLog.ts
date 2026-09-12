@@ -91,10 +91,21 @@ export const DYSKINESIA_BODY_PARTS = [
  * They are starting points, not a menu: every one of these questions also opens
  * the clock, so an answer that isn't on the list is never harder to give than
  * one that is.
+ *
+ * Each set is counted from whatever its question is naturally phrased against,
+ * which is not the same moment for all four - see the `anchor` each one is
+ * given in `buildQuestions`. Three run from the dose; the peak runs from the
+ * first improvement, because "how long after it started working did it peak" is
+ * the gap people can actually feel. Counting it from the dose instead asks them
+ * to do the subtraction in their head before they can recognise their own
+ * answer.
  */
 export const DOSE_TIME_OFFSETS = [0, 15, 30, 60, 90, 120] as const;
+/** From the dose. */
 export const FIRST_EFFECT_OFFSETS = [15, 30, 60, 90] as const;
-export const PEAK_EFFECT_OFFSETS = [30, 60, 90, 120] as const;
+/** From the first improvement, not the dose. */
+export const PEAK_EFFECT_OFFSETS = [15, 30, 45, 60, 90] as const;
+/** From the dose. */
 export const WEAR_OFF_OFFSETS = [240, 270, 300, 330, 360, 420] as const;
 
 /** The activity-level scale at peak, and what its buttons move by. */

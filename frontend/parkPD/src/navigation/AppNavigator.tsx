@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { SetupDraftProvider } from '../context/SetupDraftContext';
 import DoseLogScreen from '../screens/DoseLog';
 import HomeScreen from '../screens/Home';
+import InsightsScreen from '../screens/Insights';
 import LoginScreen from '../screens/Login';
 import MorningCheckScreen from '../screens/MorningCheck';
 import NightReviewScreen from '../screens/NightReview';
@@ -77,6 +78,15 @@ export type RootStackParamList = {
    * handed a copy that could be stale by the time it is saved.
    */
   Profile: undefined;
+  /**
+   * One day's medicine read as a line - see `screens/Insights`.
+   *
+   * No params: the screen shows the last day that was logged, and which day
+   * that is, only the server knows. Asking for it by name is what the calendar
+   * will do later, and the endpoint behind this already takes a date - so the
+   * day this opens on is a decision about the screen, not about the route.
+   */
+  Insights: undefined;
   /** The first of the three parts of a day's log - see `screens/MorningCheck`. */
   MorningCheck: {
     /**
@@ -186,6 +196,7 @@ function AppNavigator() {
             <>
               <Stack.Screen name="Home" component={HomeScreen} />
               <Stack.Screen name="Profile" component={ProfileScreen} />
+              <Stack.Screen name="Insights" component={InsightsScreen} />
               <Stack.Screen
                 name="MorningCheck"
                 component={MorningCheckScreen}

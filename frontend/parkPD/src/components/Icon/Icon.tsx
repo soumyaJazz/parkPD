@@ -26,7 +26,8 @@ export type IconName =
   | 'bell'
   | 'moon'
   | 'person'
-  | 'signOut';
+  | 'signOut'
+  | 'dyskinesia';
 
 type Glyph = {
   paths: readonly string[];
@@ -134,6 +135,31 @@ const GLYPHS: Record<IconName, Glyph> = {
     paths: [
       'M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0z',
       'M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708z',
+    ],
+  },
+  /**
+   * Involuntary movements - a hand with movement lines either side of it.
+   *
+   * Not a Bootstrap glyph: there isn't one for this, and the alternatives in
+   * that set (a waveform, an exclamation) say something else. Drawn as a
+   * silhouette rather than as the outline it was sketched from, because five
+   * outlined fingers close up into grey mush at the size this is used.
+   *
+   * Four fingers and a shorter thumb on the right, over a palm - the digits
+   * overlap the palm's top edge so the whole hand fills as one shape. The two
+   * zigzags are written as closed bands rather than as strokes, since every
+   * other glyph in this file is a fill and `Icon` draws them all the same way.
+   */
+  dyskinesia: {
+    paths: [
+      'M5.00 10 L5.00 4.15 A0.55 0.55 0 0 1 6.10 4.15 L6.10 10 Z',
+      'M6.325 10 L6.325 2.85 A0.55 0.55 0 0 1 7.425 2.85 L7.425 10 Z',
+      'M7.65 10 L7.65 2.55 A0.55 0.55 0 0 1 8.75 2.55 L8.75 10 Z',
+      'M8.975 10 L8.975 3.75 A0.55 0.55 0 0 1 10.075 3.75 L10.075 10 Z',
+      'M10.30 10 L10.30 6.35 A0.55 0.55 0 0 1 11.40 6.35 L11.40 10 Z',
+      'M5.00 9 L11.40 9 L11.40 13.2 A1.4 1.4 0 0 1 10.00 14.6 L6.40 14.6 A1.4 1.4 0 0 1 5.00 13.2 Z',
+      'M3.65 4.6 L2.35 6.05 L3.65 7.5 L2.35 8.95 L3.65 10.4 L2.75 10.4 L1.45 8.95 L2.75 7.5 L1.45 6.05 L2.75 4.6 Z',
+      'M12.35 4.6 L13.65 6.05 L12.35 7.5 L13.65 8.95 L12.35 10.4 L13.25 10.4 L14.55 8.95 L13.25 7.5 L14.55 6.05 L13.25 4.6 Z',
     ],
   },
 };

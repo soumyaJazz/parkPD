@@ -1,10 +1,23 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Pool } from 'pg';
 import { ApiPayload } from '../common/api-response';
 import { PG_POOL, withTransaction } from '../common/database.module';
 import { DailyLogBody, DailyLogsService } from './daily-logs.service';
+import {
+  ActivitySpan,
+  ActivityState,
+  DayInsightsService,
+  DoseMarker,
+  StateTotalRow,
+} from './day-insights.service';
 import { DoseLogsService } from './dose-logs.service';
 import { CreateDailyLogDto } from './dto/create-daily-log.dto';
+import { DayInsightsDto } from './dto/day-insights.dto';
 import { DoseLogDto, NO_EFFECT } from './dto/dose-log.dto';
 import { ListLogsDto } from './dto/list-logs.dto';
 
@@ -57,6 +70,47 @@ export interface DayStatusesResult {
 }
 
 /**
+ * How long the day's line runs for, as the first and last moments anything was
+ * recorded. Null on a day with no doses to draw.
+ */
+export interface InsightsWindow {
+  starts_at: string;
+  ends_at: string;
+}
+
+/**
+ * The three figures under the chart, plus what they add up to.
+ *
+ * `recorded_minutes` is the sum of the other three and is sent rather than left
+ * to the client to add up, because it is the number that stops the three from
+ * implying a whole day: the stretch between waking and the first dose has no
+ * activity level recorded against it, so it is in none of them - see the note
+ * at the top of `db/005_activity_state_views.sql`.
+ */
+export interface StateTotals {
+  on_minutes: number;
+  transition_minutes: number;
+  off_minutes: number;
+  recorded_minutes: number;
+}
+
+/** What `GET /logs/insights` hands back: one day, ready to draw. */
+export interface DayInsightsResult {
+  log_date: string;
+  medicine_name: string;
+  dose_count: number;
+  /**
+   * What was reported on this day, not a standing fact about the person - the
+   * screen says so in as many words, so it cannot be read as a diagnosis.
+   */
+  side_effects: string[] | null;
+  window: InsightsWindow | null;
+  doses: DoseMarker[];
+  spans: ActivitySpan[];
+  totals: StateTotals;
+}
+
+/**
  * "6 September 2026" - how a day is named back to the user.
  *
  * Spelled out rather than echoed as `2026-09-06`, which is a key, not a date
@@ -65,6 +119,68 @@ export interface DayStatusesResult {
 function describeDay(key: string): string {
   const [year, month, day] = key.split('-').map(Number);
   return `${day} ${MONTHS[month - 1]} ${year}`;
+}
+
+/**
+ * The long-form totals rows turned into the four figures the screen prints.
+ *
+ * A state that never occurred is an absent row rather than a zero - see the
+ * note on `day_state_totals` - so every one of them starts at zero here.
+ */
+function toStateTotals(rows: StateTotalRow[]): StateTotals {
+  const minutes: Record<ActivityState, number> = {
+    on: 0,
+    transition: 0,
+    off: 0,
+  };
+  rows.forEach((row) => {
+    minutes[row.state] = row.minutes;
+  });
+
+  return {
+    on_minutes: minutes.on,
+    transition_minutes: minutes.transition,
+    off_minutes: minutes.off,
+    recorded_minutes: minutes.on + minutes.transition + minutes.off,
+  };
+}
+
+/**
+ * The stretch of clock the chart has to cover.
+ *
+ * The spans decide it where there are any. Where there are none - a dose that
+ * was taken and nothing more was recorded about it - the doses themselves still
+ * give the axis something to be, which is better than a screen that says a day
+ * was logged and then draws nothing at all.
+ */
+function toWindow(
+  spans: ActivitySpan[],
+  doses: DoseMarker[],
+): InsightsWindow | null {
+  const edges = spans.flatMap((span) => [span.starts_at, span.ends_at]);
+  doses.forEach((dose) => edges.push(dose.dose_time));
+
+  if (edges.length === 0) {
+    return null;
+  }
+  edges.sort();
+  return { starts_at: edges[0], ends_at: edges[edges.length - 1] };
+}
+
+/**
+ * The line above the chart, which has to be true of three quite different days:
+ * one with no medicine in it, one where nothing could be drawn, and an ordinary
+ * one.
+ */
+function describeInsights(logDate: string, data: DayInsightsResult): string {
+  const day = describeDay(logDate);
+  if (data.dose_count === 0) {
+    return `You logged ${day} as a day without your medicine, so there is no chart to draw.`;
+  }
+  if (data.spans.length === 0) {
+    return `Your doses on ${day} do not have enough times recorded to draw a chart.`;
+  }
+  return `Here is your day for ${day}.`;
 }
 
 /**
@@ -128,6 +244,7 @@ export class LogsService {
   constructor(
     private dailyLogs: DailyLogsService,
     private doseLogs: DoseLogsService,
+    private dayInsights: DayInsightsService,
     @Inject(PG_POOL) private readonly pool: Pool,
   ) {}
 
@@ -225,6 +342,81 @@ export class LogsService {
       message: `You have logged ${count} ${count === 1 ? 'day' : 'days'} in this period.`,
       data: { statuses },
     };
+  }
+
+  /**
+   * One day, read as a line: when the medicine was working, when it was
+   * arriving or leaving, and when it was not working at all.
+   *
+   * The day is optional, and leaving it out is the ordinary case - the screen
+   * opens on the last day the person logged, and only the server knows which
+   * that is. An account with nothing logged at all is not an error: it gets a
+   * sentence saying so and no data, because "you have not logged a day yet" is
+   * the true answer to the question that was asked.
+   *
+   * None of the shape of the line is worked out here. It comes from the three
+   * views in `db/005_activity_state_views.sql`, so the chart and the figures
+   * under it are one piece of arithmetic rather than two that could drift.
+   */
+  async getDayInsights(
+    userId: string,
+    query: DayInsightsDto,
+  ): Promise<ApiPayload<DayInsightsResult>> {
+    const logDate = await this.resolveInsightsDate(userId, query);
+    if (logDate === null) {
+      return {
+        message:
+          'You have not logged a day yet. Log a day and your chart will appear here.',
+      };
+    }
+
+    const day = await this.dailyLogs.findByUserAndDate(userId, logDate);
+    if (day === undefined) {
+      // Only reachable when a date was asked for by name: the resolved one came
+      // from the day table a moment ago.
+      throw new NotFoundException(
+        `You have not logged ${describeDay(logDate)} yet.`,
+      );
+    }
+
+    const [doses, spans, totalRows] = await Promise.all([
+      this.dayInsights.findDoseMarkers(userId, logDate),
+      this.dayInsights.findSpans(userId, logDate),
+      this.dayInsights.findTotals(userId, logDate),
+    ]);
+
+    const totals = toStateTotals(totalRows);
+    const data: DayInsightsResult = {
+      log_date: logDate,
+      medicine_name: day.medicine_name,
+      dose_count: day.dose_count,
+      side_effects: day.med_side_effects ?? null,
+      window: toWindow(spans, doses),
+      doses,
+      spans,
+      totals,
+    };
+
+    return { message: describeInsights(logDate, data), data };
+  }
+
+  /**
+   * Which day the chart is for: the one asked for, or the last one logged.
+   *
+   * Null means this account has never logged a day - which the caller answers
+   * with a sentence rather than an error, since nothing has gone wrong.
+   */
+  private async resolveInsightsDate(
+    userId: string,
+    query: DayInsightsDto,
+  ): Promise<string | null> {
+    if (query.date === undefined) {
+      return this.dayInsights.findLatestLoggedDate(userId);
+    }
+    if (!parseDayKey(query.date)) {
+      throw new BadRequestException('Choose a real date to show.');
+    }
+    return query.date;
   }
 
   /** Both ends have to be real days, in that order, and not too far apart. */

@@ -1,4 +1,4 @@
-export { brandGradient, calendar, colors, feedback } from './colors';
+export { activity, brandGradient, calendar, colors, feedback } from './colors';
 export { globalStyles } from './globalStyles';
 export {
   APP_MAX_WIDTH,
