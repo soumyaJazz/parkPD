@@ -138,7 +138,7 @@ const GLYPHS: Record<IconName, Glyph> = {
     ],
   },
   /**
-   * Involuntary movements - a hand with movement lines either side of it.
+   * Dyskinesia - a hand with movement lines either side of it.
    *
    * Not a Bootstrap glyph: there isn't one for this, and the alternatives in
    * that set (a waveform, an exclamation) say something else. Drawn as a

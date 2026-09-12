@@ -192,7 +192,7 @@ describe('buildChart with stretches missing', () => {
   });
 });
 
-/** The same day, with involuntary movements recorded against one dose. */
+/** The same day, with dyskinesia recorded against one dose. */
 function withDyskinesia(doseNumber: number): DayInsights {
   const doses: DoseMarker[] = DAY.doses.map(dose =>
     dose.dose_number === doseNumber
@@ -251,7 +251,7 @@ describe('dyskinesia', () => {
     expect(carrying).toHaveLength(1);
     expect(carrying[0].time).toBe('8:00 AM to 11:00 AM');
     expect(carrying[0].movements).toBe(
-      'Involuntary movements for 45 mins. Felt in: Right hand, Left leg. They affected what you could do.',
+      'Dyskinesia for 45 mins. Felt in: Right hand, Left leg. It affected what you could do.',
     );
   });
 
@@ -263,16 +263,16 @@ describe('dyskinesia', () => {
         affected_daily_life: false,
       }),
     ).toBe(
-      'Involuntary movements for 20 mins. Felt in: Both legs. They did not affect what you could do.',
+      'Dyskinesia for 20 mins. Felt in: Both legs. It did not affect what you could do.',
     );
   });
 
   it('names it in the sentence a screen reader hears', () => {
     expect(chartAccessibilityLabel(DAY)).toContain(
-      'No involuntary movements were recorded.',
+      'No dyskinesia was recorded.',
     );
     expect(chartAccessibilityLabel(withDyskinesia(1))).toContain(
-      'Involuntary movements were recorded after 1 dose.',
+      'Dyskinesia was recorded after 1 dose.',
     );
   });
 });

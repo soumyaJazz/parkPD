@@ -150,7 +150,22 @@ export type ChartChip = {
  */
 export const DYSKINESIA_MARKER_RADIUS = 14;
 
-/** Involuntary movements, marked over the stretch of the dose they belong to. */
+/**
+ * What dyskinesia is called on screen.
+ *
+ * Named once, here, because it is printed in four places - the key under the
+ * chart, every written period, the screen reader's summary and the marker's own
+ * label - and a term this specific drifting between them would read as two
+ * different things.
+ *
+ * The clinical word rather than "involuntary movements": it is what the log
+ * flow already asks by name, with its own explainer on the question that
+ * introduces it, so by the time anyone reaches this screen it is a word they
+ * have already answered to.
+ */
+export const DYSKINESIA_LABEL = 'Dyskinesia';
+
+/** Dyskinesia, marked over the stretch of the dose it belongs to. */
 export type ChartDyskinesia = {
   key: string;
   doseNumber: number;
@@ -194,7 +209,7 @@ function minutesBetween(from: string, to: string): number {
 }
 
 /**
- * Involuntary movements, in a sentence.
+ * Dyskinesia, in a sentence.
  *
  * Said in full wherever it appears - on the chart it is a hand with movement
  * lines, and an icon on its own is never the whole of a signal in this app.
@@ -208,15 +223,13 @@ export function describeDyskinesia(dyskinesia: Dyskinesia): string {
   const { duration_minutes: minutes, body_parts: parts } = dyskinesia;
   const where = parts.length > 0 ? ` Felt in: ${parts.join(', ')}.` : '';
   const effect = dyskinesia.affected_daily_life
-    ? ' They affected what you could do.'
-    : ' They did not affect what you could do.';
-  return `Involuntary movements for ${formatDuration(
-    minutes,
-  )}.${where}${effect}`;
+    ? ' It affected what you could do.'
+    : ' It did not affect what you could do.';
+  return `${DYSKINESIA_LABEL} for ${formatDuration(minutes)}.${where}${effect}`;
 }
 
 /**
- * Which stretch of the day each dose's involuntary movements are marked over.
+ * Which stretch of the day each dose's dyskinesia is marked over.
  *
  * The dose's on period, because that is when peak-dose dyskinesia happens and
  * the data gives no time of its own to place it by - only a length. Falling
@@ -498,9 +511,9 @@ export type Period = {
   /** "Activity 50%", or how it moved, or that it was never recorded. */
   level: string;
   /**
-   * Involuntary movements, where this is the stretch they are marked over.
-   * Null everywhere else - so the hand on the chart is always backed by the
-   * same sentence in words, right here.
+   * Dyskinesia, where this is the stretch it is marked over. Null everywhere
+   * else - so the hand on the chart is always backed by the same sentence in
+   * words, right here.
    */
   movements: string | null;
 };
@@ -598,8 +611,8 @@ export function chartAccessibilityLabel(insights: DayInsights): string {
     `Changing, ${formatDuration(totals.transition_minutes)}.`,
     `Not working, ${formatDuration(totals.off_minutes)}.`,
     shaken === 0
-      ? 'No involuntary movements were recorded.'
-      : `Involuntary movements were recorded after ${shaken} ${
+      ? `No ${DYSKINESIA_LABEL.toLowerCase()} was recorded.`
+      : `${DYSKINESIA_LABEL} was recorded after ${shaken} ${
           shaken === 1 ? 'dose' : 'doses'
         }.`,
     'Every period is listed in words below the chart.',

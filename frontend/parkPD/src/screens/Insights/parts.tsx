@@ -15,6 +15,7 @@ import type { ChartModel, Period } from './chart';
 import {
   CHIP_HEIGHT,
   DOSE_MARKER_RADIUS,
+  DYSKINESIA_LABEL,
   DYSKINESIA_MARKER_RADIUS,
   STATE_COPY,
   STATE_DASH,
@@ -297,10 +298,10 @@ export function PatternKey() {
       <View
         style={styles.keyItem}
         accessible
-        accessibilityLabel="A hand with movement lines marks involuntary movements, also called dyskinesia"
+        accessibilityLabel={`A hand with movement lines marks ${DYSKINESIA_LABEL.toLowerCase()}`}
       >
         <Icon name="dyskinesia" size={18} color={colors.text} />
-        <Text style={styles.keyLabel}>Involuntary movements</Text>
+        <Text style={styles.keyLabel}>{DYSKINESIA_LABEL}</Text>
       </View>
     </View>
   );

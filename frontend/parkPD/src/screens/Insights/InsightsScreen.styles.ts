@@ -284,7 +284,7 @@ export const styles = StyleSheet.create({
     color: colors.subtext,
   },
   /**
-   * Involuntary movements, said in full under the period they happened in.
+   * Dyskinesia, said in full under the period it happened in.
    *
    * The hand on the chart is a picture, and this is the sentence behind it -
    * near-black on white rather than the muted grey of the line above, because

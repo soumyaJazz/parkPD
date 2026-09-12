@@ -42,7 +42,7 @@ export type ActivitySpan = {
 };
 
 /**
- * Involuntary movements during a dose - dyskinesia.
+ * Dyskinesia during a dose.
  *
  * It carries a length but no time of its own, so it cannot be placed on the
  * clock the way the four dose anchors can. It belongs to the dose, and the

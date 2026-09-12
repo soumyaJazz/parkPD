@@ -41,7 +41,7 @@ export interface StateTotalRow {
 }
 
 /**
- * Involuntary movements during a dose - dyskinesia.
+ * Dyskinesia during a dose.
  *
  * No time of its own is recorded, only how long it lasted, so it cannot be
  * placed on the clock the way the four anchors can. It belongs to the dose, and
