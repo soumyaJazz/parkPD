@@ -39,6 +39,37 @@ export const styles = StyleSheet.create({
     letterSpacing: letterSpacing.label,
   },
   /**
+   * The control that folds the suggestions away, sitting where the rule's
+   * label used to.
+   *
+   * Sentence case, not the divider's small caps: this one is a button with a
+   * verb in it, and a run of capitals is harder to read for exactly the people
+   * this app is for. Sized past the 44pt floor and given its own outline and
+   * ground, so it reads as something to press rather than as a caption that
+   * happens to respond.
+   */
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    minHeight: 44,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  togglePressed: {
+    backgroundColor: colors.primaryDisabled,
+  },
+  toggleText: {
+    fontSize: fontSize.body,
+    fontWeight: fontWeight.semibold,
+    color: colors.text,
+  },
+  /**
    * One suggestion to a row, full width.
    *
    * Two to a row meant sizing each in points off the window, which was a lie
